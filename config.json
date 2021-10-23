@@ -1,9 +1,0 @@
-{
-    "db": {
-        "host": "10.20.0.97",
-        "port": "5432",
-        "database": "long_task",
-        "user": "long_task",
-        "password": "1"
-    }
-}

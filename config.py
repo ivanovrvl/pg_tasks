@@ -5,8 +5,8 @@ from datetime import timedelta
 
 def get_config():
 
-    with open('config.json', 'r') as f:
-        config = json.load(f)
+    with open('db_config.json', 'r') as f:
+        db_config = json.load(f)
 
     return {
         "debug": True,
@@ -30,7 +30,7 @@ def get_config():
         "min_delay_after_db_error": timedelta(seconds=1), # минимум
         "max_delay_after_db_error": timedelta(seconds=30), # максимум
 
-        "db": config["db"]
+        "db": db_config
     }
 
 if __name__ == '__main__':
