@@ -22,22 +22,22 @@ CREATE TABLE long_task.period (
 
 INSERT INTO long_task.task_state ("id", "name")
 VALUES 
-  (E'AC', E'отменяется'),
-  (E'AE', E'выполняется'),
-  (E'AW', E'ожидание'),
-  (E'CC', E'отменено'),
-  (E'CF', E'ошибка'),
-  (E'CS', E'завершено'),
-  (E'DR', E'черновик');
+  (E'AC', E'cancelling'),
+  (E'AE', E'executing'),
+  (E'AW', E'waiting'),
+  (E'CC', E'cancelled'),
+  (E'CF', E'fail'),
+  (E'CS', E'completed'),
+  (E'DR', E'draft');
 
 INSERT INTO long_task.period ("id", "name", "ord")
 VALUES 
-  (E'DAY', E'День', 4),
-  (E'HOU', E'Час', 3),
-  (E'MIN', E'Минута', 2),
-  (E'MON', E'Месяц', 6),
-  (E'SEC', E'Секунда', 1),
-  (E'WEE', E'Неделя', 5);
+  (E'DAY', E'Day', 4),
+  (E'HOU', E'Hour', 3),
+  (E'MIN', E'Minute', 2),
+  (E'MON', E'Month', 6),
+  (E'SEC', E'Second', 1),
+  (E'WEE', E'Week', 5);
   
 		]]></sql> 	
 	</changeSet>
@@ -118,40 +118,40 @@ FOR EACH ROW
 		<sql><![CDATA[	
 		
 COMMENT ON COLUMN long_task.task.params
-IS 'Параметры запуска задачи';
+IS 'Task parameters';
 
 COMMENT ON COLUMN long_task.task.state_id
-IS 'Статус задачи';
+IS 'Status';
 
 COMMENT ON COLUMN long_task.task.priority
-IS 'Приоритет. 0 - наивысший. Хотя можно и <0';
+IS 'Priority. Greater is less priorited';
 
 COMMENT ON COLUMN long_task.task.group_id
-IS 'Группа воркеров';
+IS 'Worker group';
 
 COMMENT ON COLUMN long_task.task.worker_id
-IS 'Идентификатор обработчика, обрабатывающего задачу. NULL - задача может быть взята в работу любым обработчиком.';
+IS 'Worker that task is assigned to. NULL - not assigned yet';
 
 COMMENT ON COLUMN long_task.task.error
-IS 'Текст ошибки, прервавшей выполнение';
+IS 'Error text';
 
 COMMENT ON COLUMN long_task.task.command
-IS 'Комманда для запуска. Вместо %TASK подставляется task.id';
+IS 'Run command. Use %TASK to substitute task.id';
 
 COMMENT ON COLUMN long_task.task.started
-IS 'Момент запуска ==  перехода в статус AE';
+IS 'When started (AW->AE)';
 
 COMMENT ON COLUMN long_task.task.next_start
-IS 'Время следующего запуска. Если не NULL, то запускается в указанное время, либо немедленно.';
+IS 'Next start time';
 
 COMMENT ON COLUMN long_task.task.shed_period_id
-IS 'Код периода времени. Если null, задача не будет планироваться на следующий период';
+IS 'Sheduled for period type';
 
 COMMENT ON COLUMN long_task.task.shed_period_count
-IS 'Количество периодов в интервале шедулигна. Если null или <0, задача не будет планироваться на следующий период';
+IS 'Sheduled period types count';
 
 COMMENT ON COLUMN long_task.task.shed_clone
-IS 'Активировать копию зашедуленной задачи. Иначе, активируется сама задача.';
+IS 'Clone task on run by scheduler';
 	
 		]]></sql> 	
 	</changeSet>	
@@ -181,26 +181,26 @@ CREATE TABLE long_task.worker (
 		<sql><![CDATA[	
 		
 COMMENT ON COLUMN long_task.worker.locked_until
-IS 'Время, до которого действует блокировка';
+IS 'Lock is aquired until that time';
 
 COMMENT ON COLUMN long_task.worker.active
-IS 'Устанавливается при первом захвате блокировки воркером. При корректном завершении воркера сбрасывается. Если locked_time<now() and active, значит воркер пропал неожиданно.';
+IS 'Sets when lock is aquired firstly, unsets when unlocked. Worker is in fail state when locked_time<now() and active';
 
 COMMENT ON COLUMN long_task.worker.task_count
-IS 'Количество задач, исполняемых воркером, удерживающим блокировку. Для информации.';
+IS 'Running task count on the node that locked the worker. Just for information';
 
 COMMENT ON COLUMN long_task.worker.group_id
-IS 'Группа, обрабатываемая воркером, удерживающим блокировку. Для информации.';
+IS 'The worker group of the node that locked the worker. Just for information';
 
 COMMENT ON COLUMN long_task.worker.stop
-IS 'Код требования остановки (изменяется вручную):
-0 - нет требования
-1 - не брать новые задачи, но не прерывать текущие
-2 - не брать новые задачи, дождаться завершения текущих и остановиться
-3 - принудительно завершить исполняющиеся процессы и остановиться';
+IS 'Stop request code (changing by the user):
+0 - no request
+1 - don`t run new tasks but current are not cancelled, don`t stop
+2 - don`t run new tasks but current are not cancelled, stop when all tasks completed
+3 - cancel all tasks then stop';
 
 COMMENT ON COLUMN long_task.worker.node_name
-IS 'Имя узла. Для информации.';
+IS 'Node name just for information';
 	
 		]]></sql> 	
 	</changeSet>

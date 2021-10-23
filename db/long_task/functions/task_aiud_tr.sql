@@ -5,8 +5,8 @@ AS $function$
 BEGIN
 	IF TG_OP = 'UPDATE' THEN
         IF NEW.state_id = 'AC' THEN
-            IF OLD.state_id not in ('AE', 'AW', 'AC', 'AS')  THEN
-                RAISE EXCEPTION 'Нельзя отменить не активную задачу';        
+            IF OLD.state_id not in ('AE', 'AW', 'AC')  THEN
+                RAISE EXCEPTION 'Can`t cancel inactive task';
             END IF;
         END IF;        
         IF OLD.state_id like 'A%_' THEN
@@ -14,20 +14,17 @@ BEGIN
             	IF OLD.state_id in ('AE', 'AC')
                 AND OLD.worker_id is not null 
                 AND OLD.worker_id IS DISTINCT FROM NEW.worker_id THEN
-                	RAISE EXCEPTION 'Нельзя изменять исполнителя активной задачи %', OLD.id;
+                	RAISE EXCEPTION 'Can`t change worker_id for active task %', OLD.id;
                 END IF;                
             END IF;
         END IF;
    		RETURN NEW;
     ELSIF TG_OP = 'INSERT' THEN
         IF NEW.state_id not in ('AW', 'DR') THEN
-            RAISE EXCEPTION 'Создать задачу можно только в статусе Черновик либо Ожидание';
+            RAISE EXCEPTION 'Can`t create task in the state except DR or AW';
         END IF;
         RETURN NEW;
     ELSIF TG_OP = 'DELETE' THEN
-    	--IF OLD.state_id like 'A%' THEN
-        --	RAISE EXCEPTION 'Нельзя удалить активную задачу %', OLD.id;
-        --END IF;
   		RETURN OLD;
     END IF;
 END;
