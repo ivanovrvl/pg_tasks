@@ -9,7 +9,7 @@ def get_config():
         db_config = json.load(f)
 
     return {
-        "debug": True,
+        "debug": False,
 
         "worker_id": 1 if len(sys.argv)<=1 else int(sys.argv[1]), # должно быть уникальным для каждого запущенного экземпляра
         "group_id": 0 if len(sys.argv)<=2 else int(sys.argv[2]), # группа конкурирующих воркеров
