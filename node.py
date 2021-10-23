@@ -338,6 +338,8 @@ class Worker(DbObject):
             self.set_has_lock(False)
 
     def clear_fail_state(self):
+        # TODO recover active Tasks of the Worker
+        # complete or restart
         pass
 
     def process(self):
@@ -355,7 +357,7 @@ class Worker(DbObject):
                 if t is None or t + config.failed_worker_recovery_delay < self.controller.now():
                     if self.lock():
                         self.refresh_db_state()
-                        if self.db_state['active']: # check one more after lock
+                        if self.db_state['active']: # check again after lock
                             self.clear_fail_state()
                         self.unlock_and_deactivate()
 
