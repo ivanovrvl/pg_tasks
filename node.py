@@ -4,7 +4,7 @@ import psycopg2.extensions
 import subprocess
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-from config import get_config
+from config import get_config, Messages
 
 class AttrDict(dict):
     def __transform__(value):
@@ -37,6 +37,9 @@ no_more_waiting_tasks: bool = False # no more AW tasks
 executing_task_count:int = 0
 locked_other_workers_count:int = 0
 
+def get_msg(msg_const:str, default:str):
+    res = messages.get(msg_const, default)
+
 class TaskProcess:
     """
     OS process wrapper
@@ -49,7 +52,6 @@ class TaskProcess:
             else:
                 cmds.append(c)
         self.id = id
-        #print(cmds)
         self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd = cwd)
         #self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, stdout=None, stderr=None, cwd = cwd)
         #self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, cwd = cwd)
@@ -66,6 +68,15 @@ class CommonTask(ActiveObject):
         super().__init__(controller, type_name, id)
         self.was_errer = False
 
+    def info(self, msg:str):
+        if msg is not None:
+            print(msg)
+
+    def error(self, msg:str):
+        if msg is not None:
+            print(msg)
+
+
 class RefreshWorkers(CommonTask):
     """
     Periodically updates the states of each Worker from the DB, creates new ones if necessary
@@ -79,7 +90,7 @@ class RefreshWorkers(CommonTask):
         if self.check(self.next_refresh):
             self.next_refresh = self.controller.now() + config.workers_refresh_inverval
             self.schedule(self.next_refresh)
-            print("Reloading workers")
+            self.info(Messages.REFRESH_WORKERS)
             with conn.cursor() as cur:
                 sql = f"""
                     SELECT id,{','.join(Worker.table_fields)}
@@ -107,9 +118,9 @@ class RefreshTasks(CommonTask):
         global no_more_waiting_tasks
         if self.check(self.next_refresh):
             no_more_waiting_tasks = True
-            print("Reloading tasks")
-            # раз в 30 минут обновляем состояние задач
-            # потому что держим в памяти только планы на ближайщий час
+            self.info(Messages.REFRESH_TASKS)
+            # update the status of tasks every 30 minutes
+            # because we keep loaded only plans for the next hour
             self.next_refresh = self.controller.now() + timedelta(minutes=30)
             self.schedule(self.next_refresh)
             with conn.cursor() as cur:
@@ -142,6 +153,14 @@ class DbObject(CommonTask):
     type_name = None
     table_name = None
     table_fields = None
+
+    def info(self, msg:str):
+        if msg is not None:
+            super().info(self.type_name + str(self.id) + ': ' + msg)
+
+    def error(self, msg:str):
+        if msg is not None:
+            super().error(self.type_name + str(self.id) + '! ' + msg)
 
     def __init__(self, controller, id = None):
         super().__init__(controller, self.type_name, id)
@@ -236,13 +255,13 @@ class Worker(DbObject):
         self.has_lock = val
         if val:
             if self.id != config.worker_id: locked_other_workers_count += 1
-            print(f"Блокировка получена {self.id}")
+            self.info(Messages.LOCK_AQUIRED)
             if self.id == config.worker_id:
                 self.controller.signal(Task.type_name)
                 startMoreTasks.start_more()
         else:
             if self.id != config.worker_id: locked_other_workers_count -= 1
-            print(f"Блокировка снята {self.id}")
+            self.info(Messages.LOCK_RELEASED)
         return True
 
     def set_stop(self, val) -> bool:
@@ -251,7 +270,7 @@ class Worker(DbObject):
         old = self.stop
         self.stop = val
         if self.id == config.worker_id:
-            print(f"stop={val} для {self.id}")
+            self.info(Messages.STOP_VAL.format(val))
             if old > 0 and val <= 0:
                 startMoreTasks.start_more()
             elif old < 3 and val >= 3:
@@ -289,8 +308,8 @@ class Worker(DbObject):
             t = self.db_state['locked_until']
             if t is None or t != self.lock_time:
                 if not self.lock():
-                    # блокировку кто-то перехватил
-                    print(f"Блокировка кем-то перехвачена {self.id}")
+                    # somebody intercepted the lock
+                    self.error(Messages.CATCHED_LOCK)
 
         if self.lock_time is None \
         or self.check(self.lock_time - config.half_locking_time):
@@ -334,7 +353,7 @@ class Worker(DbObject):
                 if t is None or t + config.failed_worker_recovery_delay < self.controller.now():
                     if self.lock():
                         self.refresh_db_state()
-                        if self.db_state['active']: # проверяем еще раз
+                        if self.db_state['active']: # check one more after lock
                             self.clear_fail_state()
                         self.unlock_and_deactivate()
 
@@ -384,12 +403,12 @@ class Task(DbObject):
             self.__process__.terminate()
         except Exception as e:
             if config.debug: raise e
-            print('ERROR1', e)
+            self.error(str(e))
         self.set_process(None)
 
     def schedule(self, t:datetime):
         if t < self.controller.now() + timedelta(hours=1):
-            # не шедулим больше чем на час вперед, пусть задача выгрузится. Успеет загрузиться через RefreshTasks
+            # don`t schedule in a far future because RefreshTasks will reload
             super().schedule(t)
 
     def get_next_start(self):
@@ -417,28 +436,25 @@ class Task(DbObject):
 
     def start(self, command, check_changed_val):
         self.check_changed_val = check_changed_val
-        if len(command) > 0:
-            cwd = os.getcwd()
-            process = self.get_process()
-            if process is not None:
-                res_code = process.check_result()
-                if res_code is not None:
-                    self.set_process(None)
-                    process = None
-                elif res_code == 0:
-                    print(f"Completed {self.id}")
-                else:
-                    print(f"Unexceptedly terminated {self.id} with code {res_code}")
-            if process is not None:
-                self.fail('Запуск задачи с незавершенным процессом')
+        cwd = os.getcwd()
+        process = self.get_process()
+        if process is not None:
+            res_code = process.check_result()
+            if res_code is not None:
+                self.set_process(None)
+                process = None
+            elif res_code == 0:
+                self.info(Messages.TASK_COMPLETED)
             else:
-                proc = TaskProcess(list(command), self.id, cwd if cwd is not None else os.getcwd())
-                self.set_process(proc)
-                self.next_process_check = None # сразу проверить статус процесса
+                self.info(Messages.TASK_FAILED.format(res_code))
+        if process is not None:
+            self.fail(self.error(Message.RELUNCH_ACTIVE))
         else:
-            print(f"Empty command {self.id}")
+            proc = TaskProcess(list(command), self.id, cwd if cwd is not None else os.getcwd())
+            self.set_process(proc)
+            self.next_process_check = None # check the process state immediatelly
         self.refresh_db_state()
-        print('Started', self.id, list(command))
+        self.info(Messages.TASK_STARTED.format(list(command)))
 
     def update_status(self, new_state_id, error:str, check_changed_val=None) -> bool:
         with conn.cursor() as cur:
@@ -457,37 +473,36 @@ class Task(DbObject):
                 self.db_state['state_id'] = new_state_id
             if config.debug:
                 if cur.rowcount == 0:
-                    print(f"Не могу обновить статус!! {self.id}")
+                    self.error(Messages.CANT_UPDATE_TASK_STATE)
             return cur.rowcount > 0
 
     def fail(self, error:str, canceled:bool=False, force:bool=False):
         res = self.update_status('CC' if canceled else 'CF', error, None if force else self.check_changed_val)
         self.terminate_process()
         if canceled:
-            print(f'Отменена {self.id}')
+            self.info(Messages.TASK_CANCELLED)
         else:
-            print(f'{error}, {self.id}')
+            self.info(f'{error}')
         return res
 
     def complete(self):
         res = self.update_status('CS', None, self.check_changed_val)
         if res:
-            print(f'Завершена {self.id}')
+            self.info(Messages.TASK_COMPLETED)
         return res
 
     def process(self):
 
         if worker.stop >= 3:
             if worker.has_lock:
-                self.fail('Прервана', force=True)
+                self.fail(Messages.TASK_INTERRUPTED, force=True)
             self.close()
             return
 
-        # проверяем состояние из БД
+        # check the DB state
         if self.db_state is not None:
 
             if self.db_state.get("deleted"):
-                # запись была удалена
                 self.close()
                 return
 
@@ -499,27 +514,27 @@ class Task(DbObject):
             if process is not None:
                 if p_id is None or p_id != config.worker_id \
                 or self.db_state[Task.check_changed_field] != self.check_changed_val:
-                    print(f"Другая сторона перехватила запущенную задачу {self.id}")
+                    self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
                     self.terminate_process()
                     self.signal()
                 elif state_id == 'AC':
-                    self.fail('Отменена', True)
+                    self.fail(Messages.TASK_CANCELLED, True)
                 elif state_id != 'AE':
-                    print(f"Другая сторона перехватила запущенную задачу {self.id}")
+                    self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
                     self.terminate_process()
                     self.signal()
                 elif state_id.startswith("C"):
                     if not self.db_state.get("stop_detected", False):
-                        self.db_state["stop_detected"] = True # чтобы избежать повторных проверок
-                        # задача сама выставила завершение
-                        # начнем проверять статус процесса чаще
+                        self.db_state["stop_detected"] = True # to avoid repeat
+                        # the task itself set the completion
+                        # let's start checking the status of the process more often
                         self.next_process_check = None
             elif worker.has_lock:
                 if p_id is not None and p_id == config.worker_id:
                     if state_id == 'AC':
-                        self.fail('Отменена', canceled=True, force=True)
+                        self.fail(Messages.TASK_CANCELLED, canceled=True, force=True)
                     elif state_id == 'AE':
-                        self.fail('Фантомная задача', force=True)
+                        self.fail(Messages.TASK_PHANTOM, force=True)
 
         # check OS process state periodicically
         process = self.get_process()
@@ -531,7 +546,6 @@ class Task(DbObject):
                 if res_code is None:
                     self.next_process_check = self.controller.now() + self.check_proces_state_interval
                     self.schedule(self.next_process_check)
-                    # увеличиваем интервал проверки
                     self.check_proces_state_interval = self.check_proces_state_interval + self.check_proces_state_interval
                     if self.check_proces_state_interval > config.max_check_proces_state_interval:
                         self.check_proces_state_interval = config.max_check_proces_state_interval
@@ -540,7 +554,7 @@ class Task(DbObject):
                     self.set_process(None)
                     self.refresh_db_state()
                 else:
-                    self.fail(f"Неожиданно завершена с кодом {res_code}")
+                    self.fail(Messages.TASK_FAILED.format(res_code))
                     self.set_process(None)
                     self.refresh_db_state()
 
@@ -566,7 +580,7 @@ class Task(DbObject):
         # if the activities are not planned in the near future
         # then Task is not needed yet, unload it
         if not(self.is_signaled() or self.is_scheduled()):
-            #if self.get_process() is None: пока избыточно
+            #if self.get_process() is None:
                 self.close()
 
     def close(self):

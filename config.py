@@ -33,6 +33,41 @@ def get_config():
         "db": db_config
     }
 
+class Messages_eng:
+    REFRESH_WORKERS = None #"Reloading workers"
+    REFRESH_TASKS = None #"Reloading tasks"
+    LOCK_AQUIRED = "Lock aquired"
+    LOCK_RELEASED = "Lock released"
+    STOP_VAL = "stop={}"
+    RELUNCH_ACTIVE = "Can`t relunch task with active process"
+    CANT_UPDATE_TASK_STATE = "Can`t update task state"
+    TASK_STARTED = "Started {}"
+    TASK_FAILED = "Stopped with code {}"
+    TASK_CANCELLED = "Cancelled"
+    TASK_COMPLETED = "Completed"
+    TASK_INTERRUPTED = "Interrupted"
+    TASK_CATCHED_BY_OTHER_SIDE = "Task catched by the other side"
+    TASK_PHANTOM = "Phantom task"
+
+class Messages_rus:
+    REFRESH_WORKERS = None #"Reloading workers"
+    REFRESH_TASKS = None #"Reloading tasks"
+    LOCK_AQUIRED = "Блокировка получена"
+    LOCK_RELEASED = "Блокировка снята"
+    STOP_VAL = "stop={}"
+    RELUNCH_ACTIVE = "Не могу запустить задачу пока процесс активен"
+    CANT_UPDATE_TASK_STATE = "Не могу обновить статус задачи"
+    TASK_STARTED = "Запущена {}"
+    TASK_FAILED = "Завершена с кодом {}"
+    TASK_CANCELLED = "Отменена"
+    TASK_COMPLETED = "Завершена"
+    TASK_INTERRUPTED = "Прервана"
+    TASK_CATCHED_BY_OTHER_SIDE = "Задача перехвачена другой чтороной"
+    TASK_PHANTOM = "Фантомная задача"
+
+class Messages(Messages_rus):
+    pass
+
 if __name__ == '__main__':
 
     print(get_config())
