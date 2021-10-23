@@ -8,6 +8,8 @@
 * supports clustering (several workers per group)
 * supports faiover (several nodes per worker)
 
-
 # Class diagramm
-![](doc/classes.png)
+![Class diagramm](doc/classes.png)
+
+# Task lifecycle
+![Task lifecycle](doc/task_lifecycle.png)
