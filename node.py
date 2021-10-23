@@ -521,7 +521,7 @@ class Task(DbObject):
                     elif state_id == 'AE':
                         self.fail('Фантомная задача', force=True)
 
-        # если есть процесс, периодически проверяем его состояние
+        # check OS process state periodicically
         process = self.get_process()
         if process is not None:
             if self.next_process_check is None:
@@ -544,7 +544,7 @@ class Task(DbObject):
                     self.set_process(None)
                     self.refresh_db_state()
 
-        # если есть task.next_start, проверяем время старта
+        # check task lunch time at task.next_start
         if self.next_start is not None and self.check(self.next_start):
 
             next_start = self.get_next_start()
