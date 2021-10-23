@@ -1,5 +1,3 @@
-# pg_task
-
 # Features
 * a task being ran as a OS process
 * supports task queue with priority and process limit per node
