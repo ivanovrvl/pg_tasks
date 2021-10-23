@@ -472,8 +472,13 @@ class Task(DbObject):
                 cur.execute(sql, (new_state_id, error, self.id, check_changed_val))
             else:
                 cur.execute(sql, (new_state_id, error, self.id))
-            if cur.rowcount > 0 and self.db_state is not None:
-                self.db_state['state_id'] = new_state_id
+
+            if self.db_state is not None:
+                if cur.rowcount > 0:
+                    self.db_state['state_id'] = new_state_id
+                else:
+                    self.refresh_db_state()
+
             if config.debug:
                 if cur.rowcount == 0:
                     self.error(Messages.CANT_UPDATE_TASK_STATE)
@@ -555,11 +560,9 @@ class Task(DbObject):
                 elif res_code == 0:
                     self.complete()
                     self.set_process(None)
-                    self.refresh_db_state()
                 else:
                     self.fail(Messages.TASK_FAILED.format(res_code))
                     self.set_process(None)
-                    self.refresh_db_state()
 
         # check task lunch time at task.next_start
         if self.next_start is not None and self.check(self.next_start):
