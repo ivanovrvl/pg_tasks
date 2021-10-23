@@ -1,0 +1,209 @@
+﻿<?xml version="1.0" encoding="UTF-8"?>
+
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-3.1.xsd">
+    
+    <changeSet id="schema and dict" author="ivanovr" runOnChange="false" >
+		<sql><![CDATA[
+		
+CREATE SCHEMA long_task;		
+
+CREATE TABLE long_task.task_state (
+  id CHAR(2) NOT NULL,
+  name VARCHAR(20) NOT NULL,
+  CONSTRAINT task_state_pkey PRIMARY KEY(id)
+) ;
+		
+CREATE TABLE long_task.period (
+  id CHAR(3) NOT NULL,
+  name VARCHAR(20) NOT NULL,
+  ord SMALLINT NOT NULL,
+  CONSTRAINT period_pkey PRIMARY KEY(id)
+) ;
+
+INSERT INTO long_task.task_state ("id", "name")
+VALUES 
+  (E'AC', E'отменяется'),
+  (E'AE', E'выполняется'),
+  (E'AW', E'ожидание'),
+  (E'CC', E'отменено'),
+  (E'CF', E'ошибка'),
+  (E'CS', E'завершено'),
+  (E'DR', E'черновик');
+
+INSERT INTO long_task.period ("id", "name", "ord")
+VALUES 
+  (E'DAY', E'День', 4),
+  (E'HOU', E'Час', 3),
+  (E'MIN', E'Минута', 2),
+  (E'MON', E'Месяц', 6),
+  (E'SEC', E'Секунда', 1),
+  (E'WEE', E'Неделя', 5);
+  
+		]]></sql> 	
+	</changeSet>
+
+    <changeSet id="functions" author="ivanovr" runOnChange="true" >
+		<sqlFile path="public\functions\table_notify_iud.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />		
+		<sqlFile path="long_task\functions\lock_worker.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
+		<sqlFile path="long_task\functions\sched_start.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
+		<sqlFile path="long_task\functions\start_task.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
+		<sqlFile path="long_task\functions\task_aiud_tr.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
+		<sqlFile path="long_task\functions\task_state_changed_tr.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
+	</changeSet>
+		
+    <changeSet id="task" author="ivanovr" runOnChange="false" >
+		<sql><![CDATA[
+
+CREATE TABLE long_task.task (
+  id BIGSERIAL,
+  params JSONB,
+  state_id CHAR(2) DEFAULT 'DR'::bpchar NOT NULL,
+  priority INTEGER DEFAULT 0 NOT NULL,
+  group_id INTEGER DEFAULT 0 NOT NULL,  
+  worker_id BIGINT,
+  error TEXT,
+  command VARCHAR [] NOT NULL, 
+  started TIMESTAMP(0) WITH TIME ZONE,
+  last_state_change TIMESTAMP(3) WITH TIME ZONE DEFAULT now() NOT NULL,
+  created TIMESTAMP(0) WITH TIME ZONE DEFAULT now() NOT NULL,
+  next_start TIMESTAMP(0) WITHOUT TIME ZONE,
+  shed_period_id CHAR(3),
+  shed_period_count INTEGER,
+  shed_clone BOOLEAN DEFAULT false NOT NULL,
+  CONSTRAINT task_pkey PRIMARY KEY(id),
+  CONSTRAINT task_shed_period_fk FOREIGN KEY (shed_period_id)
+    REFERENCES long_task.period(id)
+    ON DELETE NO ACTION
+    ON UPDATE NO ACTION
+    NOT DEFERRABLE,
+  CONSTRAINT task_state_fk FOREIGN KEY (state_id)
+    REFERENCES long_task.task_state(id)
+    ON DELETE NO ACTION
+    ON UPDATE NO ACTION
+    NOT DEFERRABLE
+) ;
+
+CREATE INDEX task_group_state_idx ON long_task.task
+  USING btree (group_id, state_id COLLATE pg_catalog."default")
+  WHERE (state_id ~~ 'A%'::text);
+
+CREATE INDEX task_next_start_idx ON long_task.task
+  USING btree (next_start);
+
+CREATE INDEX task_state_idx ON long_task.task
+  USING btree (state_id COLLATE pg_catalog."default");
+  
+CREATE TRIGGER task_aiud_tr
+  AFTER INSERT OR UPDATE OF state_id, worker_id OR DELETE 
+  ON long_task.task
+FOR EACH ROW 
+  EXECUTE PROCEDURE long_task.task_aiud_tr();
+
+CREATE TRIGGER task_notify_iud_tr
+  AFTER INSERT OR UPDATE OF state_id, next_start, shed_period_id, shed_period_count, group_id OR DELETE 
+  ON long_task.task
+FOR EACH ROW 
+  EXECUTE PROCEDURE public.table_notify_iud();
+  
+		]]></sql> 	
+	</changeSet>
+
+	<changeSet id="task triggers" author="ivanovr" runOnChange="true" >
+		<sqlFile path="long_task\triggers\task\task_aiud_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />
+		<sqlFile path="long_task\triggers\task\task_notify_iud_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />
+		<sqlFile path="long_task\triggers\task\task_state_changed_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />
+	</changeSet>
+	
+    <changeSet id="task comments" author="ivanovr" runOnChange="true" >
+		<sql><![CDATA[	
+		
+COMMENT ON COLUMN long_task.task.params
+IS 'Параметры запуска задачи';
+
+COMMENT ON COLUMN long_task.task.state_id
+IS 'Статус задачи';
+
+COMMENT ON COLUMN long_task.task.priority
+IS 'Приоритет. 0 - наивысший. Хотя можно и <0';
+
+COMMENT ON COLUMN long_task.task.group_id
+IS 'Группа воркеров';
+
+COMMENT ON COLUMN long_task.task.worker_id
+IS 'Идентификатор обработчика, обрабатывающего задачу. NULL - задача может быть взята в работу любым обработчиком.';
+
+COMMENT ON COLUMN long_task.task.error
+IS 'Текст ошибки, прервавшей выполнение';
+
+COMMENT ON COLUMN long_task.task.command
+IS 'Комманда для запуска. Вместо %TASK подставляется task.id';
+
+COMMENT ON COLUMN long_task.task.started
+IS 'Момент запуска ==  перехода в статус AE';
+
+COMMENT ON COLUMN long_task.task.next_start
+IS 'Время следующего запуска. Если не NULL, то запускается в указанное время, либо немедленно.';
+
+COMMENT ON COLUMN long_task.task.shed_period_id
+IS 'Код периода времени. Если null, задача не будет планироваться на следующий период';
+
+COMMENT ON COLUMN long_task.task.shed_period_count
+IS 'Количество периодов в интервале шедулигна. Если null или <0, задача не будет планироваться на следующий период';
+
+COMMENT ON COLUMN long_task.task.shed_clone
+IS 'Активировать копию зашедуленной задачи. Иначе, активируется сама задача.';
+	
+		]]></sql> 	
+	</changeSet>	
+	
+    <changeSet id="worker" author="ivanovr" runOnChange="false" >
+		<sql><![CDATA[	
+		
+CREATE TABLE long_task.worker (
+  id INTEGER NOT NULL,
+  locked_until TIMESTAMP WITHOUT TIME ZONE,
+  active BOOLEAN DEFAULT false NOT NULL,
+  task_count INTEGER,
+  group_id INTEGER,
+  stop SMALLINT DEFAULT 0 NOT NULL,
+  node_name VARCHAR,
+  CONSTRAINT worker_pkey PRIMARY KEY(id)
+) ;
+
+		]]></sql> 	
+	</changeSet>
+
+	<changeSet id="worker triggers" author="ivanovr" runOnChange="true" >
+		<sqlFile path="long_task\triggers\worker\worker_notify_iud_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />	
+	</changeSet>
+	
+    <changeSet id="worker comments" author="ivanovr" runOnChange="true" >
+		<sql><![CDATA[	
+		
+COMMENT ON COLUMN long_task.worker.locked_until
+IS 'Время, до которого действует блокировка';
+
+COMMENT ON COLUMN long_task.worker.active
+IS 'Устанавливается при первом захвате блокировки воркером. При корректном завершении воркера сбрасывается. Если locked_time<now() and active, значит воркер пропал неожиданно.';
+
+COMMENT ON COLUMN long_task.worker.task_count
+IS 'Количество задач, исполняемых воркером, удерживающим блокировку. Для информации.';
+
+COMMENT ON COLUMN long_task.worker.group_id
+IS 'Группа, обрабатываемая воркером, удерживающим блокировку. Для информации.';
+
+COMMENT ON COLUMN long_task.worker.stop
+IS 'Код требования остановки (изменяется вручную):
+0 - нет требования
+1 - не брать новые задачи, но не прерывать текущие
+2 - не брать новые задачи, дождаться завершения текущих и остановиться
+3 - принудительно завершить исполняющиеся процессы и остановиться';
+
+COMMENT ON COLUMN long_task.worker.node_name
+IS 'Имя узла. Для информации.';
+	
+		]]></sql> 	
+	</changeSet>
+		
+</databaseChangeLog>
+
