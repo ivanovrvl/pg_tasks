@@ -9,7 +9,7 @@
 * supports faiover (several nodes per worker)
 
 # Class diagramm
-![Class diagramm](doc/classes.png)
+![Class diagramm](doc/images/classes.png)
 
 # Task lifecycle
-![Task lifecycle](doc/task_lifecycle.png)
+![Task lifecycle](doc/images/task_lifecycle.png)
