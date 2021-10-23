@@ -29,17 +29,17 @@ controller = ActiveObjectsController()
 startMoreTasks = None
 refreshTasks = None
 refreshWorkers = None
-worker = None # собственный воркер
+worker = None # Node`s worker
 
-conn = None # соединение с БД
+conn = None # DB Connection
 
-no_more_waiting_tasks: bool = False # больше нет ожидающих записей (в статусе AW)
+no_more_waiting_tasks: bool = False # no more AW tasks
 executing_task_count:int = 0
 locked_other_workers_count:int = 0
 
 class TaskProcess:
     """
-    Обертка для управления процессом в системе
+    OS process wrapper
     """
     def __init__(self, commands:list, id, cwd=None):
         cmds = []
@@ -61,16 +61,14 @@ class TaskProcess:
         self.proc.terminate()
 
 class CommonTask(ActiveObject):
-    """
-    Активная задача
-    """
+
     def __init__(self, controller, type_name = None, id = None):
         super().__init__(controller, type_name, id)
         self.was_errer = False
 
 class RefreshWorkers(CommonTask):
     """
-    Периодически обновляет состояние всех Worker-ов из базы, при необходимости, создает новые
+    Periodically updates the states of each Worker from the DB, creates new ones if necessary
     """
 
     def __init__(self, controller):
@@ -97,8 +95,8 @@ class RefreshWorkers(CommonTask):
 
 class RefreshTasks(CommonTask):
     """
-    Обновляет активные Task состоянием из базы, при необходимости, создает новые
-    учитывает все активные задачи, задачи с ближайшим стартом и все активные (загруженные)
+    Updates the Tasks loaded with the state from the base, if necessary, creates new ones
+    takes into account all active tasks, tasks with the nearest start and loaded
     """
 
     def __init__(self, controller):
@@ -137,7 +135,8 @@ class RefreshTasks(CommonTask):
 
 class DbObject(CommonTask):
     """
-    Объект задачи, соответствующий записи в таблице table_name. Идентифицируется по (type_name, id)
+    A task object corresponding to the record in table_name table
+    Identified by (type_name, id)
     """
 
     type_name = None
@@ -208,7 +207,7 @@ class DbObject(CommonTask):
 
 class Worker(DbObject):
     """
-    Соответствует записям из long_task.worker
+    long_task.worker record
     """
     type_name = "w"
     table_name = "long_task.worker"
@@ -261,7 +260,7 @@ class Worker(DbObject):
 
     def lock(self) -> bool:
         """
-        Пытается получить либо продлить блокировку
+        Tries to get or prolongate the lock
         """
         with conn.cursor() as cur:
             lock_until = self.controller.now() + config.half_locking_time + config.half_locking_time
@@ -284,7 +283,7 @@ class Worker(DbObject):
 
     def keep_lock(self):
         """
-        Захватывает и периодически продляет блокировку
+        Aquires lock and prolongates it periodicically
         """
         if self.has_lock:
             t = self.db_state['locked_until']
@@ -308,9 +307,7 @@ class Worker(DbObject):
         return self.has_lock
 
     def unlock_and_deactivate(self):
-        """
-        Снимает блокировку
-        """
+
         with conn.cursor() as cur:
             sql = f"UPDATE {Worker.table_name} SET active=false, locked_until=NULL, task_count=%s WHERE id=%s"
             cur.execute(sql, (executing_task_count if self.id==config.worker_id else 0, self.id))
@@ -346,7 +343,7 @@ class Worker(DbObject):
 
 class Task(DbObject):
     """
-    Соответствует некоторым записям из long_task.task
+    long_task.task record
     """
 
     changed = set()
@@ -397,7 +394,7 @@ class Task(DbObject):
 
     def get_next_start(self):
         """
-        Рассчитываем время следующего запуска. Тут можно реализовать и другие алгоритмы
+        Calculates the time of the next launch. Other algorithms can be implemented here.
         """
         period = self.db_state['shed_period_id']
         count = self.db_state['shed_period_count']
@@ -566,7 +563,8 @@ class Task(DbObject):
                         new_task = Task.find_or_new(new_task_id)
                         new_task.refresh_db_state()
 
-        # если активностей не намечается, значит Task пока не нужна, выгружаем
+        # if the activities are not planned in the near future
+        # then Task is not needed yet, unload it
         if not(self.is_signaled() or self.is_scheduled()):
             #if self.get_process() is None: пока избыточно
                 self.close()
@@ -577,7 +575,7 @@ class Task(DbObject):
 
     def is_intresting_db_state(db_state:map) -> bool:
         """
-        Решает должна ли данная строка быть загружена в виде активного объекта
+        Decides if the given record should be loaded as a DbObject
         """
         if db_state['group_id'] != config.group_id:
             return False
@@ -595,7 +593,7 @@ class Task(DbObject):
 
 class StartMoreTasks(CommonTask):
     """
-    Запускает ожидающие задачи, если не превышены ограничения
+    Runs pending tasks if limits are not exceeded
     """
 
     def can_start_more(self):
@@ -613,7 +611,7 @@ class StartMoreTasks(CommonTask):
                 if id is None:
                     no_more_waiting_tasks = True
                     return
-                self.signal() # потом попробуем еще одну
+                self.signal() # then try one more
                 sql = f"SELECT command, {','.join(Task.table_fields)} \
                     FROM {Task.table_name} \
                     WHERE id = %s"
@@ -637,7 +635,7 @@ class StartMoreTasks(CommonTask):
 startMoreTasks = StartMoreTasks(controller)
 refreshTasks = RefreshTasks(controller)
 refreshWorkers = RefreshWorkers(controller)
-worker = Worker.find_or_new(config.worker_id) # собственный воркер
+worker = Worker.find_or_new(config.worker_id) # Node`s worker
 
 def get_db_state(cur, row) -> map:
     return {d.name: row[i] for i, d in enumerate(cur.description)}
@@ -687,7 +685,7 @@ def add_period_until(start:datetime, until:datetime, period:relativedelta):
 
 def on_error(task: CommonTask, error):
     task.was_error = True
-    task.schedule(controller.now() + config.task_retry_delay) # повтор через некоторое время
+    task.schedule(controller.now() + config.task_retry_delay)
     if config.debug: raise error
     print('ERROR2', error)
 
