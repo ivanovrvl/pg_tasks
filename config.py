@@ -14,7 +14,7 @@ def get_config():
         "worker_id": 1 if len(sys.argv)<=1 else int(sys.argv[1]), # должно быть уникальным для каждого запущенного экземпляра
         "group_id": 0 if len(sys.argv)<=2 else int(sys.argv[2]), # группа конкурирующих воркеров
 
-        "max_task_count": 1 if len(sys.argv)<=3 else int(sys.argv[3]), # максимальное число одновременных задач
+        "max_task_count": 3 if len(sys.argv)<=3 else int(sys.argv[3]), # максимальное число одновременных задач
         "node_name": os.environ['COMPUTERNAME'] if len(sys.argv)<=4 else int(sys.argv[4]),
 
         "half_locking_time": timedelta(seconds=5), # половина времени продления блокировки worker

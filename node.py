@@ -560,6 +560,8 @@ class Task(DbObject):
 
         # check task lunch time at task.next_start
         if self.next_start is not None and self.check(self.next_start):
+            if self.db_state is None:
+                self.refresh_db_state()
 
             next_start = self.get_next_start()
             with conn.cursor() as cur:
