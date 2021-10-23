@@ -477,7 +477,7 @@ class Task(DbObject):
                 if cur.rowcount > 0:
                     self.db_state['state_id'] = new_state_id
                 else:
-                    self.refresh_db_state()
+                    self.db_state = None
 
             if config.debug:
                 if cur.rowcount == 0:
