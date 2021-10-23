@@ -140,9 +140,10 @@ class ActiveObjectsController:
             if item is None:
                 return next_time
             n = 10
-            while n > 0 and item is not None:
+            while item is not None:
                 do(item.owner)
                 n -= 1
+                if n < 0: break
                 item = self.__signaled__.remove_first()
 
     def for_each_object(self, type_name, func):

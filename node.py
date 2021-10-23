@@ -275,6 +275,8 @@ class Worker(DbObject):
                 startMoreTasks.start_more()
             elif old < 3 and val >= 3:
                 self.controller.signal(Task.type_name)
+            elif old >= 0 and val < 0:
+                self.controller.signal(Task.type_name)
         return True
 
     def lock(self) -> bool:
@@ -399,6 +401,7 @@ class Task(DbObject):
     def terminate_process(self):
         if self.__process__ is None:
             return
+        self.info('kill process')
         try:
             self.__process__.terminate()
         except Exception as e:
@@ -519,16 +522,16 @@ class Task(DbObject):
                     self.signal()
                 elif state_id == 'AC':
                     self.fail(Messages.TASK_CANCELLED, True)
-                elif state_id != 'AE':
-                    self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
-                    self.terminate_process()
-                    self.signal()
                 elif state_id.startswith("C"):
                     if not self.db_state.get("stop_detected", False):
                         self.db_state["stop_detected"] = True # to avoid repeat
                         # the task itself set the completion
                         # let's start checking the status of the process more often
                         self.next_process_check = None
+                elif state_id != 'AE':
+                    self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
+                    self.terminate_process()
+                    self.signal()
             elif worker.has_lock:
                 if p_id is not None and p_id == config.worker_id:
                     if state_id == 'AC':

@@ -2,6 +2,7 @@ import os
 import sys
 import json
 from datetime import timedelta
+import socket
 
 def get_config():
 
@@ -15,7 +16,7 @@ def get_config():
         "group_id": 0 if len(sys.argv)<=2 else int(sys.argv[2]), # группа конкурирующих воркеров
 
         "max_task_count": 3 if len(sys.argv)<=3 else int(sys.argv[3]), # максимальное число одновременных задач
-        "node_name": os.environ['COMPUTERNAME'] if len(sys.argv)<=4 else int(sys.argv[4]),
+        "node_name": socket.gethostname() if len(sys.argv)<=4 else int(sys.argv[4]),
 
         "half_locking_time": timedelta(seconds=5), # половина времени продления блокировки worker
         "failed_worker_recovery_delay": timedelta(seconds=5), # задержка обнаружения worker failed state
@@ -63,7 +64,7 @@ class Messages_rus:
     TASK_CANCELLED = "Отменена"
     TASK_COMPLETED = "Завершена"
     TASK_INTERRUPTED = "Прервана"
-    TASK_CATCHED_BY_OTHER_SIDE = "Задача перехвачена другой чтороной"
+    TASK_CATCHED_BY_OTHER_SIDE = "Задача перехвачена другой стороной"
     TASK_PHANTOM = "Фантомная задача"
 
 class Messages(Messages_rus):
