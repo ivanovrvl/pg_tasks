@@ -30,7 +30,8 @@ def get_config():
         "min_delay_after_db_error": timedelta(seconds=1), # минимум
         "max_delay_after_db_error": timedelta(seconds=30), # максимум
 
-        "db": db_config
+        "db": db_config,
+        "schema": "long_task"
     }
 
 class Messages_eng:

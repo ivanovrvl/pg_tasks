@@ -226,10 +226,10 @@ class DbObject(CommonTask):
 
 class Worker(DbObject):
     """
-    long_task.worker record
+    worker record
     """
     type_name = "w"
-    table_name = "long_task.worker"
+    table_name = f"{config.schema}.worker"
     table_fields = ['active', 'locked_until', 'stop']
 
     changed = set()
@@ -283,7 +283,7 @@ class Worker(DbObject):
         """
         with conn.cursor() as cur:
             lock_until = self.controller.now() + config.half_locking_time + config.half_locking_time
-            sql = "SELECT long_task.lock_worker(%s,%s,%s,%s,%s,%s)"
+            sql = f"SELECT {config.schema}.lock_worker(%s,%s,%s,%s,%s,%s)"
             if self.id == config.worker_id:
                 cur.execute(sql, (self.id, config.group_id, config.node_name, executing_task_count, lock_until, self.lock_time))
             else:
@@ -362,14 +362,14 @@ class Worker(DbObject):
 
 class Task(DbObject):
     """
-    long_task.task record
+    task record
     """
 
     changed = set()
     deleted = set()
 
     type_name = "t"
-    table_name = "long_task.task"
+    table_name = f"{config.schema}.task"
     check_changed_field = 'started'
     table_fields = ['state_id', 'worker_id', 'group_id', 'next_start', 'shed_period_id', 'shed_period_count', check_changed_field]
 
@@ -563,14 +563,14 @@ class Task(DbObject):
 
             next_start = self.get_next_start()
             with conn.cursor() as cur:
-                sql = "UPDATE long_task.task SET next_start=%s WHERE id=%s AND next_start=%s"
+                sql = f"UPDATE {Task.table_name} SET next_start=%s WHERE id=%s AND next_start=%s"
                 cur.execute(sql, (next_start, self.id, self.next_start))
                 if cur.rowcount > 0:
                     self.next_start = next_start
                     if self.next_start is not None:
                         self.schedule(self.next_start)
                     self.set_db_state(None)
-                    sql = "SELECT long_task.sched_start(%s)"
+                    sql = f"SELECT {config.schema}.sched_start(%s)"
                     cur.execute(sql, (self.id,))
                     new_task_id = cur.fetchone()[0]
                     if new_task_id is not None:
@@ -619,7 +619,7 @@ class StartMoreTasks(CommonTask):
         global executing_task_count, no_more_waiting_tasks
         if self.can_start_more():
             with conn.cursor() as cur:
-                sql ="SELECT start_task FROM long_task.start_task(%s,%s)"
+                sql = f"SELECT start_task FROM {config.schema}.start_task(%s,%s)"
                 cur.execute(sql, (config.group_id, config.worker_id))
                 id = cur.fetchone()[0]
                 if id is None:
