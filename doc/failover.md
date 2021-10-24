@@ -6,7 +6,7 @@
 # Worker fail state detection and recovery
 Worker is in fail state when (worker.locked_until > now()) is true.
 Worker observer lunch recovery procedure when (worker.locked_until + config.failed_worker_recovery_delay > now()) is true.
-Recovery procedure:
+Recovery procedure is:
 - aquire exclusive lock for the worker
 - call recover_worker_tasks(worker_id) stored procedure
 - reset worker.active flag
