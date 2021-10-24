@@ -6,7 +6,7 @@
 ![Failover](images/worker_failover.png)
 # Worker fail state detection and recovery
 Worker is in fail state when (worker.locked_until > now()) is true.\
-Worker observer running on each Node lunches recovery procedure for any worker for which (worker.locked_until + config.failed_worker_recovery_delay > now()) is true.\
+Worker observer running on each Node (group_id, worker_id don`t matter) lunches recovery procedure for any worker for which (worker.locked_until + config.failed_worker_recovery_delay > now()) is true.\
 Recovery procedure does:
 - aquires exclusive lock for the worker
 - calls recover_worker_tasks(worker_id) stored procedure that must re-queue or complete Worker`s Tasks
