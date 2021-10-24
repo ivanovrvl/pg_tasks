@@ -1,6 +1,6 @@
 # Features
 * A task runs as an OS process
-* Tasks queue with priority and process limit per node
+* Tasks queue with priority and process limit per node are supported
 * Fully database driven (a workers and tasks are controlled through the table rows)
 * A task can be cancelled ([see task lifecycle](doc/images/task_lifecycle.png))
 * A task can be scheduled at a time or with interval
