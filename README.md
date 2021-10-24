@@ -1,5 +1,5 @@
 # Features
-* a task been ran as an OS process
+* a task runs as an OS process
 * supports tasks queue with priority and process limit per node
 * fully database driven (a worker and task can be controlled through table row)
 * task can be cancelled by changing its state in the table row (OS process terminated)
