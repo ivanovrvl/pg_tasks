@@ -54,6 +54,7 @@ class Messages_eng:
     TASK_CATCHED_BY_OTHER_SIDE = "Task catched by the other side"
     TASK_PHANTOM = "Phantom task"
     LOCK_CATCHED = "Lock was catched by the other side"
+    RECOVER_TASKS = "Recover failed worker's tasks"
 
 class Messages_rus:
     REFRESH_WORKERS = None #"Reloading workers"
@@ -71,6 +72,7 @@ class Messages_rus:
     TASK_CATCHED_BY_OTHER_SIDE = "Задача перехвачена другой стороной"
     TASK_PHANTOM = "Фантомная задача"
     LOCK_CATCHED = "Блокировка кем-то перехвачена"
+    RECOVER_TASKS = "Восстановление задач для failed worker"
 
 class Messages(Messages_rus):
     pass

@@ -337,10 +337,11 @@ class Worker(DbObject):
             self.db_state['locked_until'] = None
             self.set_has_lock(False)
 
-    def clear_fail_state(self):
-        # TODO recover active Tasks of the Worker
-        # complete or restart them
-        pass
+    def recover_worker_tasks(self):
+        self.info(Messages.RECOVER_TASKS)
+        with conn.cursor() as cur:
+            sql = f"SELECT {config.schema}.recover_worker_tasks(%s)"
+            cur.execute(sql, (self.id,))
 
     def process(self):
         if self.db_state is not None:
@@ -358,7 +359,7 @@ class Worker(DbObject):
                     if self.lock():
                         self.refresh_db_state()
                         if self.db_state['active']: # check again after lock
-                            self.clear_fail_state()
+                            self.recover_worker_tasks()
                         self.unlock_and_deactivate()
 
     def is_intresting_db_state(db_state:map) -> bool:

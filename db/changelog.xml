@@ -49,6 +49,7 @@ VALUES
 		<sqlFile path="long_task\functions\start_task.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
 		<sqlFile path="long_task\functions\task_aiud_tr.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
 		<sqlFile path="long_task\functions\task_state_changed_tr.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
+		<sqlFile path="long_task\functions\recover_worker_tasks.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
 	</changeSet>
 		
     <changeSet id="task" author="ivanovr" runOnChange="false" >
