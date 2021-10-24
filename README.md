@@ -5,7 +5,7 @@
 * a task can be cancelled by changing its state in the table row (OS process terminated)
 * a task can be scheduled at a time or with interval
 * uses postgres NOTYFY feature in opposite to pooling (instant changes discovery, less request)
-* [supports clustering (several nodes per a group)](docs/clustering.md)
+* [supports clustering (several nodes per a group)](doc/clustering.md)
 * supports faiover (several nodes per worker)
 
 # Class diagramm
