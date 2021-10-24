@@ -3,4 +3,4 @@ Waiting tasks are assigned to the group
 Several Nodes simultaniously owns waiting tasks ASAP to execute
 
 # Cluster of two Nodes
-![Class diagramm](doc/images/cluster.png)
+![Clustering](doc/images/clustering.png)
