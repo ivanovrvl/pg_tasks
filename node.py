@@ -66,7 +66,7 @@ class CommonTask(ActiveObject):
 
     def __init__(self, controller, type_name = None, id = None):
         super().__init__(controller, type_name, id)
-        self.was_errer = False
+        self.__retry_delay__ = None
 
     def info(self, msg:str):
         if msg is not None:
@@ -260,6 +260,7 @@ class Worker(DbObject):
                 self.controller.signal(Task.type_name)
                 startMoreTasks.start_more()
         else:
+            self.lock_time = None
             if self.id != config.worker_id: locked_other_workers_count -= 1
             self.info(Messages.LOCK_RELEASED)
         return True
@@ -309,9 +310,9 @@ class Worker(DbObject):
         if self.has_lock:
             t = self.db_state['locked_until']
             if t is None or t != self.lock_time:
-                if not self.lock():
-                    # somebody intercepted the lock
-                    self.error(Messages.CATCHED_LOCK)
+                # somebody intercepted the lock
+                self.error(Messages.LOCK_CATCHED)
+                self.lock()
 
         if self.lock_time is None \
         or self.check(self.lock_time - config.half_locking_time):
@@ -334,12 +335,11 @@ class Worker(DbObject):
             cur.execute(sql, (executing_task_count if self.id==config.worker_id else 0, self.id))
             self.db_state['active'] = False
             self.db_state['locked_until'] = None
-            self.lock_time = None
             self.set_has_lock(False)
 
     def clear_fail_state(self):
         # TODO recover active Tasks of the Worker
-        # complete or restart
+        # complete or restart them
         pass
 
     def process(self):
@@ -379,6 +379,7 @@ class Task(DbObject):
 
     def __init__(self, controller, id = None):
         super().__init__(controller, id)
+        self.priority = 1
         self.__process__:TaskProcess = None
         self.next_process_check = None
         self.next_start = None
@@ -707,11 +708,20 @@ def add_period_until(start:datetime, until:datetime, period:relativedelta):
                 return t
     return add(start, period)
 
-def on_error(task: CommonTask, error):
-    task.was_error = True
-    task.schedule(controller.now() + config.task_retry_delay)
+
+def on_task_success(task: CommonTask):
+    task.__retry_delay__ = None
+
+def on_task_error(task: CommonTask, error):
     if config.debug: raise error
-    print('ERROR2', error)
+    if task.__retry_delay__ is None:
+        task.__retry_delay__ = config.min_task_retry_delay
+    else:
+        task.__retry_delay__ += task.__retry_delay__
+        if task.__retry_delay__ > config.max_task_retry_delay:
+            task.__retry_delay__ = config.max_task_retry_delay
+    task.schedule(controller.now() + task.__retry_delay__)
+    task.error(str(error))
 
 def terminate() -> bool:
     return worker.stop > 1 and executing_task_count == 0 and locked_other_workers_count == 0
@@ -749,7 +759,7 @@ def run():
 
                 while True: # Main loop
 
-                    next_time = controller.process(on_error=on_error)
+                    next_time = controller.process(on_success=on_task_success, on_error=on_task_error)
                     wait_time = 3 if config.debug else 60
                     if next_time is not None:
                         dt = (next_time - controller.now()).total_seconds()
@@ -763,6 +773,7 @@ def run():
                         unlock_workers()
                         return
 
+                    if config.debug: print(wait_time)
                     r, w, e = select.select([conn], [], [], wait_time)
 
                     Worker.clear_changes()

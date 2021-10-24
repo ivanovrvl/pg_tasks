@@ -12,6 +12,7 @@ class ActiveObject:
         self.__tree_by_t__ = avl_tree.TreeNode(self)
         self.__tree_by_id__ = avl_tree.TreeNode(self)
         self.__signaled__ = linked_list.DualLinkedListItem(self)
+        self.priority = 0
         if id is not None:
             controller.__tree_by_id__.add(self.__tree_by_id__)
 
@@ -27,8 +28,13 @@ class ActiveObject:
     def schedule(self, t:datetime):
         if t is not None:
             if not self.__tree_by_t__.in_tree() or t < self.t:
+                self.controller.__tree_by_t__.remove(self.__tree_by_t__)
                 self.t = t
                 self.controller.__tree_by_t__.add(self.__tree_by_t__)
+
+    def unschedule(self):
+        self.controller.__tree_by_t__.remove(self.__tree_by_t__)
+        self.t = None
 
     def deactivate(self):
         self.controller.__tree_by_t__.remove(self.__tree_by_t__)
@@ -37,7 +43,7 @@ class ActiveObject:
 
     def signal(self):
         if not self.__signaled__.in_list():
-            self.controller.__signaled__.add(self.__signaled__)
+            self.controller.__signaled__[self.priority].add(self.__signaled__)
 
     def check(self, t:datetime) -> bool:
         if t is None:
@@ -98,7 +104,7 @@ class ActiveObjectsController:
     def __init__(self):
         self.__tree_by_t__ = avl_tree.Tree(__comp_t__)
         self.__tree_by_id__ = avl_tree.Tree(__comp_id__)
-        self.__signaled__ = linked_list.DualLinkedList()
+        self.__signaled__ = [linked_list.DualLinkedList(), linked_list.DualLinkedList()]
 
     def find(self, type_name, id) -> ActiveObject:
         node = self.__tree_by_id__.find((type_name,id), __compkey_id__)
@@ -113,7 +119,7 @@ class ActiveObjectsController:
         if node is not None:
             return node.owner
 
-    def process(self, on_error=None) -> datetime:
+    def process(self, on_success=None, on_error=None) -> datetime:
 
         def do(obj:ActiveObject):
             if on_error is not None:
@@ -121,8 +127,16 @@ class ActiveObjectsController:
             else:
                 try:
                     obj.process()
+                    if on_success is not None:
+                        on_success(obj)
                 except Exception as e:
                     on_error(obj, e)
+
+        def remove_next_signaled() -> ActiveObject:
+            for queue in self.__signaled__:
+                item = queue.remove_first()
+                if item is not None:
+                    return item
 
         while True:
             obj = self.get_nearest()
@@ -133,10 +147,11 @@ class ActiveObjectsController:
                     next_time = obj.get_t()
                     break
                 next_task = obj.next()
-                obj.deactivate()
-                do(obj)
+                obj.unschedule()
+                obj.signal()
                 obj = next_task
-            item = self.__signaled__.remove_first()
+
+            item = remove_next_signaled()
             if item is None:
                 return next_time
             n = 10
@@ -144,7 +159,7 @@ class ActiveObjectsController:
                 do(item.owner)
                 n -= 1
                 if n < 0: break
-                item = self.__signaled__.remove_first()
+                item = remove_next_signaled()
 
     def for_each_object(self, type_name, func):
         n = self.__tree_by_id__.find_leftmost_eq(type_name, __compkey_type__)

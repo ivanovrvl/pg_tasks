@@ -21,7 +21,10 @@ def get_config():
         "half_locking_time": timedelta(seconds=5), # половина времени продления блокировки worker
         "failed_worker_recovery_delay": timedelta(seconds=5), # задержка обнаружения worker failed state
         "workers_refresh_inverval": timedelta(seconds=30), # периодичность обновления информации о workers
-        "task_retry_delay": timedelta(seconds=5), # задержка повтора обработки Task после ошибки
+
+        # задержка повтора обработки после ошибки
+        "min_task_retry_delay": timedelta(seconds=1), # минимум
+        "max_task_retry_delay": timedelta(seconds=300), # максимум
 
         # как часто проверяется состояние процесса (начинается с минимума и каждый раз увеличивается вдвое)
         "min_check_proces_state_interval": timedelta(seconds=1), # минимум
@@ -50,6 +53,7 @@ class Messages_eng:
     TASK_INTERRUPTED = "Interrupted"
     TASK_CATCHED_BY_OTHER_SIDE = "Task catched by the other side"
     TASK_PHANTOM = "Phantom task"
+    LOCK_CATCHED = "Lock was catched by the other side"
 
 class Messages_rus:
     REFRESH_WORKERS = None #"Reloading workers"
@@ -66,6 +70,7 @@ class Messages_rus:
     TASK_INTERRUPTED = "Прервана"
     TASK_CATCHED_BY_OTHER_SIDE = "Задача перехвачена другой стороной"
     TASK_PHANTOM = "Фантомная задача"
+    LOCK_CATCHED = "Блокировка кем-то перехвачена"
 
 class Messages(Messages_rus):
     pass
