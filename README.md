@@ -4,7 +4,7 @@
 * fully database driven (a worker and task can be controlled through the table row)
 * a task can be cancelled by changing its state in the table row (OS process terminated)
 * a task can be scheduled at a time or with interval
-* uses postgres NOTYFY events in opposite to pooling (instant changes discovery, less request)
+* uses postgres NOTYFY feature in opposite to pooling (instant changes discovery, less request)
 * supports clustering (several nodes per group)
 * supports faiover (several nodes per worker)
 
