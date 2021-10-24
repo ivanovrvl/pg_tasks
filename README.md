@@ -13,3 +13,7 @@
 
 # Task lifecycle
 ![Task lifecycle](doc/images/task_lifecycle.png)
+# Installation
+- Apply liquibase script db/changelog.xml: use update_db.bat for help
+- Change db_config.json, config.py if needed
+- Run nodes with appropriate command line parameters (see config.py): python node.py [<worker_id> [<group_id> [<max_task_count> [<node_name>]]]]
