@@ -99,12 +99,12 @@ def __comp_t__(n1, n2):
     else:
         return -1
 
-class ActiveObjectsController:
+class ActiveObjectsController():
 
-    def __init__(self):
+    def __init__(self, priority_count:int=1):
         self.__tree_by_t__ = avl_tree.Tree(__comp_t__)
         self.__tree_by_id__ = avl_tree.Tree(__comp_id__)
-        self.__signaled__ = [linked_list.DualLinkedList(), linked_list.DualLinkedList()]
+        self.__signaled__ = [linked_list.DualLinkedList() for i in range(0, priority_count)]
 
     def find(self, type_name, id) -> ActiveObject:
         node = self.__tree_by_id__.find((type_name,id), __compkey_id__)

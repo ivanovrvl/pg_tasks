@@ -24,7 +24,7 @@ config = AttrDict(get_config())
 sys.path.append(os.path.abspath('py_active_objects'))
 from active_objects import ActiveObject, ActiveObjectsController
 
-controller = ActiveObjectsController()
+controller = ActiveObjectsController(priority_count=2)
 
 startMoreTasks = None
 refreshTasks = None
@@ -595,6 +595,8 @@ class Task(DbObject):
                 self.close()
 
     def close(self):
+        if config.debug:
+            self.info('Close')
         self.terminate_process()
         super().close()
 
@@ -760,7 +762,7 @@ def run():
                 while True: # Main loop
 
                     next_time = controller.process(on_success=on_task_success, on_error=on_task_error)
-                    wait_time = 3 if config.debug else 60
+                    wait_time = 5 if config.debug else 60
                     if next_time is not None:
                         dt = (next_time - controller.now()).total_seconds()
                         if dt > 0:
@@ -768,7 +770,6 @@ def run():
                                 wait_time = dt
                         else:
                             wait_time = 0.1
-
                     if terminate():
                         unlock_workers()
                         return
