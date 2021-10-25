@@ -257,8 +257,8 @@ class Worker(DbObject):
             if self.id != config.worker_id: locked_other_workers_count += 1
             self.info(Messages.LOCK_AQUIRED)
             if self.id == config.worker_id:
-                self.controller.signal(Task.type_name)
                 startMoreTasks.start_more()
+                refreshTasks.refresh_all()
         else:
             self.lock_time = None
             if self.id != config.worker_id: locked_other_workers_count -= 1
@@ -570,10 +570,11 @@ class Task(DbObject):
 
         # check task lunch time at task.next_start
         if self.next_start is not None and self.check(self.next_start):
+
             if self.db_state is None:
                 self.refresh_db_state()
-
             next_start = self.get_next_start()
+
             with conn.cursor() as cur:
                 sql = f"UPDATE {Task.table_name} SET next_start=%s WHERE id=%s AND next_start=%s"
                 cur.execute(sql, (next_start, self.id, self.next_start))
@@ -588,6 +589,10 @@ class Task(DbObject):
                     if new_task_id is not None:
                         new_task = Task.find_or_new(new_task_id)
                         new_task.refresh_db_state()
+                else:
+                    # task.next_start has been changed but not seen yet
+                    self.next_start = None
+                    self.set_db_state(None)
 
         # if the activities are not planned in the near future
         # then Task is not needed yet, unload it
