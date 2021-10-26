@@ -14,6 +14,8 @@
 # Task lifecycle
 ![Task lifecycle](doc/images/task_lifecycle.png)
 # Installation
+- git clone https://github.com/ivanovrvl/pg_tasks.git
+- pip install -r requirements.txt
 - Apply liquibase script db/changelog.xml: use update_db.bat for help (backup stored procedures customized before)
 - Restore stored procedures customized, adotp them if needed
 - Change db_config.json, config.py if needed
