@@ -1,3 +1,8 @@
+# Running tasks in pairs in a loop
+# 1 <-> 2
+# 3 <-> 4
+# ...
+
 import os
 import sys
 import json
