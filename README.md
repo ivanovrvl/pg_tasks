@@ -22,3 +22,5 @@
 - Run Nodes with appropriate command line parameters (see config.py):\
   python node.py [<worker_id> [<group_id> [<max_task_count> [<node_name>]]]]
 
+# Some perfomance tests
+[Here](doc/test_results.md)
