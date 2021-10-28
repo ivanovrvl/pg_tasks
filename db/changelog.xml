@@ -43,13 +43,14 @@ VALUES
 	</changeSet>
 
     <changeSet id="functions" author="ivanovr" runOnChange="true" >
-		<sqlFile path="public\functions\table_notify_iud.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />		
 		<sqlFile path="long_task\functions\lock_worker.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
 		<sqlFile path="long_task\functions\sched_start.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
 		<sqlFile path="long_task\functions\start_task.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
 		<sqlFile path="long_task\functions\task_aiud_tr.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
 		<sqlFile path="long_task\functions\task_state_changed_tr.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
 		<sqlFile path="long_task\functions\recover_worker_tasks.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
+		<sqlFile path="long_task\functions\task_changed_notify.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
+		<sqlFile path="long_task\functions\worker_changed_notify.sql" relativeToChangelogFile="true" splitStatements="false" encoding="utf8" />
 	</changeSet>
 		
     <changeSet id="task" author="ivanovr" runOnChange="false" >
@@ -111,8 +112,8 @@ FOR EACH ROW
 
 	<changeSet id="task triggers" author="ivanovr" runOnChange="true" >
 		<sqlFile path="long_task\triggers\task\task_aiud_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />
-		<sqlFile path="long_task\triggers\task\task_notify_iud_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />
-		<sqlFile path="long_task\triggers\task\task_state_changed_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />
+		<sqlFile path="long_task\triggers\task\task_state_changed_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />		
+		<sqlFile path="long_task\triggers\task\task_changed_notify_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />
 	</changeSet>
 	
     <changeSet id="task comments" author="ivanovr" runOnChange="true" >
@@ -175,7 +176,7 @@ CREATE TABLE long_task.worker (
 	</changeSet>
 
 	<changeSet id="worker triggers" author="ivanovr" runOnChange="true" >
-		<sqlFile path="long_task\triggers\worker\worker_notify_iud_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />	
+		<sqlFile path="long_task\triggers\worker\worker_changed_notify_tr.sql" relativeToChangelogFile="true" splitStatements="true" encoding="utf8" />	
 	</changeSet>
 	
     <changeSet id="worker comments" author="ivanovr" runOnChange="true" >
@@ -203,6 +204,13 @@ IS 'Stop request code (changing by the user):
 COMMENT ON COLUMN long_task.worker.node_name
 IS 'Node name just for information';
 	
+		]]></sql> 	
+	</changeSet>
+
+	<changeSet id="28_10_2021" author="ivanovr" runOnChange="false" >
+		<sql><![CDATA[			
+DROP TRIGGER IF EXISTS task_notify_iud_tr ON long_task.task;
+DROP TRIGGER IF EXISTS worker_notify_iud_tr ON long_task.worker;
 		]]></sql> 	
 	</changeSet>
 		

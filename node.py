@@ -231,6 +231,7 @@ class Worker(DbObject):
     type_name = "w"
     table_name = f"{config.schema}.worker"
     table_fields = ['active', 'locked_until', 'stop']
+    notify_key = '!' + table_name
 
     changed = set()
     deleted = set()
@@ -377,6 +378,7 @@ class Task(DbObject):
     table_name = f"{config.schema}.task"
     check_changed_field = 'started'
     table_fields = ['state_id', 'worker_id', 'group_id', 'next_start', 'shed_period_id', 'shed_period_count', check_changed_field]
+    notify_key = f'!{table_name}.{config.group_id}'
 
     def __init__(self, controller, id = None):
         super().__init__(controller, id)
@@ -756,8 +758,8 @@ def run():
                 conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
 
                 with conn.cursor() as cur:
-                    cur.execute(f'LISTEN "!{Task.table_name}"')
-                    cur.execute(f'LISTEN "!{Worker.table_name}"')
+                    cur.execute(f'LISTEN "{Task.notify_key}"')
+                    cur.execute(f'LISTEN "{Worker.notify_key}"')
 
                 refreshWorkers.refresh_all()
                 if not terminate():
@@ -789,9 +791,9 @@ def run():
                     conn.poll()
                     while conn.notifies:
                         n = conn.notifies.pop()
-                        if n.channel == '!' + Task.table_name:
+                        if n.channel == Task.notify_key:
                             Task.add_change(n.payload)
-                        elif n.channel == '!' + Worker.table_name:
+                        elif n.channel == Worker.notify_key:
                             Worker.add_change(n.payload)
 
                     Worker.apply_changes()
