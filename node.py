@@ -407,7 +407,8 @@ class Task(DbObject):
     def terminate_process(self):
         if self.__process__ is None:
             return
-        self.info('kill process')
+        if config.debug:
+            self.info('kill process')
         try:
             self.__process__.terminate()
         except Exception as e:
