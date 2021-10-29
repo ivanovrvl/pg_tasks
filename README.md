@@ -27,7 +27,7 @@ UPDATE long_task.task
 SET state_id='AW', worker_id=null
 WHERE id = <id>
 ```
-Re-queue a completed task
+Re-queue a completed task for ASAP executing by any worker in the group
 ```SQL
 UPDATE long_task.task
 SET state_id='AW', worker_id=null
@@ -48,7 +48,5 @@ WHERE id = <id> AND state_id like 'A%'
 - Change db_config.json, config.py if needed
 - Run Nodes with appropriate command line parameters (see config.py):\
   python node.py [<worker_id> [<group_id> [<max_task_count> [<node_name>]]]]
-
-
 
 # Some perfomance tests [here](doc/test_results.md)
