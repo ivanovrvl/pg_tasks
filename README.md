@@ -13,6 +13,21 @@
 
 # Task lifecycle
 ![Task lifecycle](doc/images/task_lifecycle.png)
+
+# Task management examples
+Create new task  in the Draft state
+```SQL
+INSERT INTO long_task.task(group_id, state_id, priority, command)
+VALUES (0, 'DR', 0, '{ping,-n,1,127.0.0.1}')
+RETURNING id;
+```
+Queue task task for ASAP executing by any worker in the group
+```SQL
+UPDATE long_task.task
+SET state_id='AE', worker_id=null
+WHERE id = <id>;
+```
+
 # Installation
 - git clone https://github.com/ivanovrvl/pg_tasks.git
 - pip install -r requirements.txt
@@ -21,5 +36,7 @@
 - Change db_config.json, config.py if needed
 - Run Nodes with appropriate command line parameters (see config.py):\
   python node.py [<worker_id> [<group_id> [<max_task_count> [<node_name>]]]]
+
+
 
 # Some perfomance tests [here](doc/test_results.md)
