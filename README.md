@@ -21,11 +21,23 @@ INSERT INTO long_task.task(group_id, state_id, priority, command)
 VALUES (0, 'DR', 0, '{ping,-n,1,127.0.0.1}')
 RETURNING id;
 ```
-Queue task task for ASAP executing by any worker in the group
+Queue draft task for ASAP executing by any worker in the group
 ```SQL
 UPDATE long_task.task
-SET state_id='AE', worker_id=null
-WHERE id = <id>;
+SET state_id='AW', worker_id=null
+WHERE id = <id>
+```
+Re-queue a completed task
+```SQL
+UPDATE long_task.task
+SET state_id='AW', worker_id=null
+WHERE id = <id> AND state_id like 'C%'
+```
+Cancel a queued or executing task
+```SQL
+UPDATE long_task.task
+SET state_id='AC'
+WHERE id = <id> AND state_id like 'A%'
 ```
 
 # Installation
