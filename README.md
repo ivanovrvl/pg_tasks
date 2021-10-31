@@ -49,7 +49,7 @@ SET
 	shed_clone=false
 WHERE id = <id>
 ```
-Schedule existing task for each 10 seconds to be cloned and queued
+Schedule existing task for each 10 seconds that will be cloned and queued each time
 ```SQL
 UPDATE long_task.task
 SET 
