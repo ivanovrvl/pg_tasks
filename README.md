@@ -49,6 +49,16 @@ SET
 	shed_clone=false
 WHERE id = <id>
 ```
+Schedule existing task for each 10 seconds to be cloned and queued
+```SQL
+UPDATE long_task.task
+SET 
+	next_start=now(),
+	shed_period_id='SEC',
+	shed_period_count=10,
+	shed_clone=false
+WHERE id = <id>
+```
 
 # Installation
 - git clone https://github.com/ivanovrvl/pg_tasks.git
