@@ -13,6 +13,53 @@
 
 # Task lifecycle
 ![Task lifecycle](doc/images/task_lifecycle.png)
+
+# Task management examples
+Create new task  in the Draft state
+```SQL
+INSERT INTO long_task.task(group_id, state_id, priority, command)
+VALUES (0, 'DR', 0, '{ping,-n,1,127.0.0.1}')
+RETURNING id;
+```
+Queue draft task for ASAP executing by any worker in the group
+```SQL
+UPDATE long_task.task
+SET state_id='AW', worker_id=null
+WHERE id = <id>
+```
+Re-queue a completed task for ASAP executing by any worker in the group
+```SQL
+UPDATE long_task.task
+SET state_id='AW', worker_id=null
+WHERE id = <id> AND state_id like 'C%'
+```
+Cancel a queued or executing task
+```SQL
+UPDATE long_task.task
+SET state_id='AC'
+WHERE id = <id> AND state_id like 'A%'
+```
+Schedule existing task for each 2 hours from now (start will be skipped if state_id is not like 'C%')
+```SQL
+UPDATE long_task.task
+SET 
+	next_start=now(),
+	shed_period_id='HOU',
+	shed_period_count=2,
+	shed_clone=false
+WHERE id = <id>
+```
+Schedule existing task for each 10 seconds to be cloned and queued
+```SQL
+UPDATE long_task.task
+SET 
+	next_start=now(),
+	shed_period_id='SEC',
+	shed_period_count=10,
+	shed_clone=false
+WHERE id = <id>
+```
+
 # Installation
 - git clone https://github.com/ivanovrvl/pg_tasks.git
 - pip install -r requirements.txt
