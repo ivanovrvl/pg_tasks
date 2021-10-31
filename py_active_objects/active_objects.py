@@ -4,7 +4,7 @@ from datetime import datetime
 
 class ActiveObject:
 
-    def __init__(self, controller, type_name = None, id = None):
+    def __init__(self, controller, type_name=None, id=None, priority:int=0):
         self.t:datetime = None
         self.type_name = type_name
         self.id = id
@@ -12,7 +12,7 @@ class ActiveObject:
         self.__tree_by_t__ = avl_tree.TreeNode(self)
         self.__tree_by_id__ = avl_tree.TreeNode(self)
         self.__signaled__ = linked_list.DualLinkedListItem(self)
-        self.priority = 0
+        self.priority = priority
         if id is not None:
             controller.__tree_by_id__.add(self.__tree_by_id__)
 
