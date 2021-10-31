@@ -12,27 +12,46 @@ def get_config():
     return {
         "debug": False,
 
-        "worker_id": 1 if len(sys.argv)<=1 else int(sys.argv[1]), # должно быть уникальным для каждого запущенного экземпляра
-        "group_id": 0 if len(sys.argv)<=2 else int(sys.argv[2]), # группа конкурирующих воркеров
+        # должно быть уникальным для каждого запущенного экземпляра
+        # must be unique for each node
+        "worker_id": 1 if len(sys.argv)<=1 else int(sys.argv[1]),
+        
+        # группа конкурирующих воркеров
+        # the group of concurenting nodes
+        "group_id": 0 if len(sys.argv)<=2 else int(sys.argv[2]),
 
-        "max_task_count": 3 if len(sys.argv)<=3 else int(sys.argv[3]), # максимальное число одновременных задач
+        # максимальное число одновременных задач
+        # max simultanious tasks
+        "max_task_count": 3 if len(sys.argv)<=3 else int(sys.argv[3]), 
+        
         "node_name": socket.gethostname() if len(sys.argv)<=4 else sys.argv[4],
 
-        "half_locking_time": timedelta(seconds=5), # половина времени продления блокировки worker
-        "failed_worker_recovery_delay": timedelta(seconds=5), # задержка обнаружения worker failed state
-        "workers_refresh_inverval": timedelta(seconds=30), # периодичность обновления информации о workers
+        # половина времени продления блокировки worker
+        # half of the locking period to prolongate one
+        "half_locking_time": timedelta(seconds=5),
+                
+        # задержка после истечения блокировки, когда запускается worker failed state recovery
+        # delay after the lock deadline when worker failed state recovery has to be start
+        "failed_worker_recovery_delay": timedelta(seconds=5), 
+        
+        # период обновления информации о workers
+        # workers state refresh period
+        "workers_refresh_inverval": timedelta(seconds=30),
 
-        # задержка повтора обработки после ошибки
-        "min_task_retry_delay": timedelta(seconds=1), # минимум
-        "max_task_retry_delay": timedelta(seconds=300), # максимум
+        # задержка повтора обработки после ошибки (удваивается при повторе)
+        # delay to retry after error (starts with min and doubled on retry)
+        "min_task_retry_delay": timedelta(seconds=1), # минимум (min)
+        "max_task_retry_delay": timedelta(seconds=300), # максимум (max)
 
-        # как часто проверяется состояние процесса (начинается с минимума и каждый раз увеличивается вдвое)
-        "min_check_proces_state_interval": timedelta(seconds=1), # минимум
-        "max_check_proces_state_interval": timedelta(seconds=10), # максимум
+        # как часто проверяется состояние процесса (сначала минимум, затем удваивается)
+        # period to check OS process state (starts with min and doubled on check)
+        "min_check_proces_state_interval": timedelta(seconds=1), # минимум (min)
+        "max_check_proces_state_interval": timedelta(seconds=10), # максимум (max)
 
-        # задержка переподключения к БД после ошибки, сек
-        "min_delay_after_db_error": timedelta(seconds=1), # минимум
-        "max_delay_after_db_error": timedelta(seconds=30), # максимум
+        # задержка переподключения к БД после ошибки, сек (удваивается при повторе)
+        # delay to reconnect do DB (starts with min and doubled on check)
+        "min_delay_after_db_error": timedelta(seconds=1), # минимум (min)
+        "max_delay_after_db_error": timedelta(seconds=30), # максимум (max)
 
         "db": db_config,
         "schema": "long_task"
@@ -74,7 +93,7 @@ class Messages_rus:
     LOCK_CATCHED = "Блокировка кем-то перехвачена"
     RECOVER_TASKS = "Восстановление задач для failed worker"
 
-class Messages(Messages_rus):
+class Messages(Messages_eng):
     pass
 
 if __name__ == '__main__':
