@@ -213,6 +213,24 @@ DROP TRIGGER IF EXISTS task_notify_iud_tr ON long_task.task;
 DROP TRIGGER IF EXISTS worker_notify_iud_tr ON long_task.worker;
 		]]></sql> 	
 	</changeSet>
+
+	<changeSet id="SP descriptions" author="ivanovr" runOnChange="true" >
+		<sql><![CDATA[			
+COMMENT ON FUNCTION long_task.lock_worker(p_id bigint, p_group_id integer, p_node_name varchar, p_task_count integer, p_lock_until timestamp, p_prev_locked_until timestamp)
+IS 'Aquires a lock on the worker.';		
+		
+COMMENT ON FUNCTION long_task.recover_worker_tasks(p_worker_id integer)
+IS 'It is called by any node that detects another worker fail state to re-queue or cancel the worker`s executing tasks.';
+
+COMMENT ON FUNCTION long_task.sched_start(p_id bigint)
+IS 'Called on task.next_time to lunch the task.
+Returns task.id queued. Returns NULL if the lunch must be skipped for now.';
+
+COMMENT ON FUNCTION long_task.start_task(p_group_id integer, p_worker_id integer)
+IS 'Select one of the waiting tasks to be executed by the worker.';
+		]]></sql> 	
+	</changeSet>
+
 		
 </databaseChangeLog>
 
