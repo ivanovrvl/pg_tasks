@@ -6,7 +6,7 @@
 * A task can be scheduled at a time or with interval
 * Uses postgres NOTIFY feature in opposite to pooling => instant changes discovery, less requests
 * [Clustering is supported](doc/clustering.md)
-* [Faiover is supported](doc/failover.md)
+* [Failover is supported](doc/failover.md)
 
 # Class diagramm
 ![Class diagramm](doc/images/classes.png)
