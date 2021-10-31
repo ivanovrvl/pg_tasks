@@ -34,8 +34,8 @@ def get_config():
         # delay after the lock deadline when worker failed state recovery has to be start
         "failed_worker_recovery_delay": timedelta(seconds=5), 
         
-        # период обновления информации о workers
-        # workers state refresh period
+        # период обновления информации о workers (только для обнаружения worker failed state)
+        # workers state refresh period (for worker failed state discovery only)
         "workers_refresh_inverval": timedelta(seconds=30),
 
         # задержка повтора обработки после ошибки (удваивается при повторе)
