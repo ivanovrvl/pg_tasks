@@ -39,6 +39,16 @@ UPDATE long_task.task
 SET state_id='AC'
 WHERE id = <id> AND state_id like 'A%'
 ```
+Schedule existing task for each 2 hours from now (start will be skipped if state_id is not like 'C%')
+```SQL
+UPDATE long_task.task
+SET 
+	next_start=now(),
+	shed_period_id='HOU',
+  shed_period_count=2,
+  shed_clone=false
+WHERE id = <id>
+```
 
 # Installation
 - git clone https://github.com/ivanovrvl/pg_tasks.git
