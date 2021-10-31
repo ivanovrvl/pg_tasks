@@ -119,9 +119,9 @@ class RefreshTasks(CommonTask):
         if self.check(self.next_refresh):
             no_more_waiting_tasks = True
             self.info(Messages.REFRESH_TASKS)
-            # update the status of tasks every 30 minutes
+            # update the status of tasks every 55 minutes
             # because we keep loaded only plans for the next hour
-            self.next_refresh = self.controller.now() + timedelta(minutes=30)
+            self.next_refresh = self.controller.now() + timedelta(minutes=55)
             self.schedule(self.next_refresh)
             with conn.cursor() as cur:
                 sql = f"""
