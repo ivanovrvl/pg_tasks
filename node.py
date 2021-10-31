@@ -416,10 +416,20 @@ class Task(DbObject):
             self.error(str(e))
         self.set_process(None)
 
-    def schedule(self, t:datetime):
+    def schedule_with_limit(self, t:datetime):
         if t < self.controller.now() + timedelta(hours=1):
-            # don`t schedule in a far future because RefreshTasks will reload
+            # don`t schedule in a far future to allow task to be unloaded. RefreshTasks will reload sometime
             super().schedule(t)
+
+    def check_with_limit(self, t:datetime):
+        if t is None:
+            return True
+        else:
+            if t <= self.controller.now():
+                return True
+            else:
+                self.schedule_with_limit(t)
+                return False
 
     def get_next_start(self):
         """
@@ -571,8 +581,8 @@ class Task(DbObject):
                     self.fail(Messages.TASK_FAILED.format(res_code))
                     self.set_process(None)
 
-        # check task lunch time at task.next_start
-        if self.next_start is not None and self.check(self.next_start):
+        # check task.next_start reached
+        if self.next_start is not None and self.check_with_limit(self.next_start):
 
             if self.db_state is None:
                 self.refresh_db_state()
@@ -584,7 +594,7 @@ class Task(DbObject):
                 if cur.rowcount > 0:
                     self.next_start = next_start
                     if self.next_start is not None:
-                        self.schedule(self.next_start)
+                        self.schedule_with_limit(self.next_start)
                     self.set_db_state(None)
                     sql = f"SELECT {config.schema}.sched_start(%s)"
                     cur.execute(sql, (self.id,))
@@ -593,7 +603,7 @@ class Task(DbObject):
                         new_task = Task.find_or_new(new_task_id)
                         new_task.refresh_db_state()
                 else:
-                    # task.next_start has been changed but not seen yet
+                    # task.next_start has been changed by another node
                     self.next_start = None
                     self.set_db_state(None)
 
