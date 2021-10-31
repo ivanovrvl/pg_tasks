@@ -45,8 +45,8 @@ UPDATE long_task.task
 SET 
 	next_start=now(),
 	shed_period_id='HOU',
-  shed_period_count=2,
-  shed_clone=false
+	shed_period_count=2,
+	shed_clone=false
 WHERE id = <id>
 ```
 
