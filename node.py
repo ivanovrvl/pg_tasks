@@ -1,3 +1,5 @@
+# This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/pg_tasks/blob/main/LICENSE
+
 import json
 import sys, os, select, time, datetime
 import psycopg2.extensions
