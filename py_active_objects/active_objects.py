@@ -1,3 +1,5 @@
+# This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/pg_tasks/blob/main/LICENSE
+
 import avl_tree
 import linked_list
 from datetime import datetime
@@ -119,11 +121,16 @@ class ActiveObjectsController():
         if node is not None:
             return node.owner
 
-    def process(self, on_success=None, on_error=None) -> datetime:
+    def process(self, on_before=None, on_success=None, on_error=None) -> datetime:
 
         def do(obj:ActiveObject):
-            if on_error is not None:
+            if on_before is not None:
+                if on_before(obj):
+                    return
+            if on_error is None:
                 obj.process()
+                if on_success is not None:
+                    on_success(obj)
             else:
                 try:
                     obj.process()

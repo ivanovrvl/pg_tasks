@@ -67,6 +67,7 @@ class CommonTask(ActiveObject):
     def __init__(self, controller, type_name = None, id = None):
         super().__init__(controller, type_name, id)
         self.__retry_delay__ = None
+        self.__next_retry__ = None
 
     def info(self, msg:str):
         if msg is not None:
@@ -737,9 +738,14 @@ def add_period_until(start:datetime, until:datetime, period:relativedelta):
                 return t
     return add(start, period)
 
+def on_task_before(task: CommonTask):
+    if task.__next_retry__ is not None:
+        if not task.check(task.__next_retry__):
+            return True
 
 def on_task_success(task: CommonTask):
     task.__retry_delay__ = None
+    task.__next_retry__ = None
 
 def on_task_error(task: CommonTask, error):
     if config.debug: raise error
@@ -749,7 +755,8 @@ def on_task_error(task: CommonTask, error):
         task.__retry_delay__ += task.__retry_delay__
         if task.__retry_delay__ > config.max_task_retry_delay:
             task.__retry_delay__ = config.max_task_retry_delay
-    task.schedule(controller.now() + task.__retry_delay__)
+    task.__next_retry__ = controller.now() + task.__retry_delay__
+    task.schedule(task.__next_retry__)
     task.error(str(error))
 
 def terminate() -> bool:
@@ -788,7 +795,7 @@ def run():
 
                 while True: # Main loop
 
-                    next_time = controller.process(on_success=on_task_success, on_error=on_task_error)
+                    next_time = controller.process(on_before=on_task_before, on_success=on_task_success, on_error=on_task_error)
                     wait_time = 5 if config.debug else 60
                     if next_time is not None:
                         dt = (next_time - controller.now()).total_seconds()
