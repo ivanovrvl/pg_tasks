@@ -454,9 +454,14 @@ class Task(DbObject):
             if add_interval is not None:
                 return add_period_until(self.next_start, controller.now(), add_interval) + add_interval
 
-    def start(self, command, check_changed_val):
-        self.check_changed_val = check_changed_val
-        cwd = os.getcwd()
+    def start(self, command, cwd:str=None):
+        if cwd is None or not os.path.isabs(cwd):
+            root = config.get("root_dir")
+            if root is None:
+                root = os.getcwd()
+            if cwd is not None:
+                cwd = os.path.join(root, cwd)
+
         process = self.get_process()
         if process is not None:
             res_code = process.check_result()
@@ -470,7 +475,7 @@ class Task(DbObject):
         if process is not None:
             self.fail(self.error(Message.RELUNCH_ACTIVE))
         else:
-            proc = TaskProcess(list(command), self.id, cwd if cwd is not None else os.getcwd())
+            proc = TaskProcess(list(command), self.id, cwd)
             self.set_process(proc)
             self.next_process_check = None # check the process state immediatelly
         self.refresh_db_state()
@@ -658,7 +663,7 @@ class StartMoreTasks(CommonTask):
                     no_more_waiting_tasks = True
                     return
                 self.signal() # then try one more
-                sql = f"SELECT command, {','.join(Task.table_fields)} \
+                sql = f"SELECT command, cwd, {','.join(Task.table_fields)} \
                     FROM {Task.table_name} \
                     WHERE id = %s"
                 cur.execute(sql, (id,))
@@ -668,10 +673,11 @@ class StartMoreTasks(CommonTask):
                 task = Task.find_or_new(id)
                 try:
                     db_state = get_db_state(cur, row)
+                    task.check_changed_val = db_state.get(Task.check_changed_field)
                     task.set_db_state(db_state)
-                    task.start(row[0], db_state[Task.check_changed_field])
+                    task.start(row[0], row[1])
                 except Exception as e:
-                    on_error(task, e)
+                    on_task_error(task, e)
                     task.fail(str(e))
 
     def start_more(self):

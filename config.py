@@ -15,25 +15,25 @@ def get_config():
         # должно быть уникальным для каждого запущенного экземпляра
         # must be unique for each node
         "worker_id": 1 if len(sys.argv)<=1 else int(sys.argv[1]),
-        
+
         # группа конкурирующих воркеров
         # the group of concurenting nodes
         "group_id": 0 if len(sys.argv)<=2 else int(sys.argv[2]),
 
         # максимальное число одновременных задач
         # max simultanious tasks
-        "max_task_count": 3 if len(sys.argv)<=3 else int(sys.argv[3]), 
-        
+        "max_task_count": 3 if len(sys.argv)<=3 else int(sys.argv[3]),
+
         "node_name": socket.gethostname() if len(sys.argv)<=4 else sys.argv[4],
 
         # половина времени продления блокировки worker
         # half of the locking period to prolongate one
         "half_locking_time": timedelta(seconds=5),
-                
+
         # задержка после истечения блокировки, когда запускается worker failed state recovery
         # delay after the lock deadline when worker failed state recovery has to be start
-        "failed_worker_recovery_delay": timedelta(seconds=5), 
-        
+        "failed_worker_recovery_delay": timedelta(seconds=5),
+
         # период обновления информации о workers (только для обнаружения worker failed state)
         # workers state refresh period (for worker failed state discovery only)
         "workers_refresh_inverval": timedelta(seconds=30),
@@ -52,6 +52,10 @@ def get_config():
         # delay to reconnect do DB (starts with min and doubled on check)
         "min_delay_after_db_error": timedelta(seconds=1), # минимум (min)
         "max_delay_after_db_error": timedelta(seconds=30), # максимум (max)
+
+        # корневая директория для запускаемых процессов, None - текущий каталог
+        # the root directory for processes being started, None - current cwd
+        "root_dir": None,
 
         "db": db_config,
         "schema": "long_task"

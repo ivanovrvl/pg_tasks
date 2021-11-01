@@ -231,6 +231,20 @@ IS 'Select one of the waiting tasks to be executed by the worker.';
 		]]></sql> 	
 	</changeSet>
 
+	<changeSet id="01_11_2021" author="ivanovr" runOnChange="false" >
+		<sql><![CDATA[	
+ALTER TABLE long_task.task ADD COLUMN cwd VARCHAR(260);
+		]]></sql> 	
+	</changeSet>
+
+	<changeSet id="01_11_2021-2" author="ivanovr" runOnChange="true" >
+		<sql><![CDATA[	
+COMMENT ON COLUMN long_task.task.cwd
+IS 'The root directory for processes being started absolute or relatively to config.root_dir';
+		]]></sql> 	
+	</changeSet>
+
+
 		
 </databaseChangeLog>
 
