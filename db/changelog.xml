@@ -64,7 +64,6 @@ CREATE TABLE long_task.task (
   group_id INTEGER DEFAULT 0 NOT NULL,  
   worker_id BIGINT,
   error TEXT,
-  cwd VARCHAR(260),
   command VARCHAR [] NOT NULL, 
   started TIMESTAMP(0) WITH TIME ZONE,
   last_state_change TIMESTAMP(3) WITH TIME ZONE DEFAULT now() NOT NULL,
