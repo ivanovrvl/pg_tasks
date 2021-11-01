@@ -461,6 +461,8 @@ class Task(DbObject):
                 root = os.getcwd()
             if cwd is not None:
                 cwd = os.path.join(root, cwd)
+            else:
+                cwd = root
 
         process = self.get_process()
         if process is not None:
