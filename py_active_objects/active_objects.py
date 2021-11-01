@@ -1,4 +1,4 @@
-# This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/pg_tasks/blob/main/LICENSE
+# This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/py_active_objects/blob/main/LICENSE
 
 import avl_tree
 import linked_list
@@ -47,7 +47,7 @@ class ActiveObject:
         if not self.__signaled__.in_list():
             self.controller.__signaled__[self.priority].add(self.__signaled__)
 
-    def check(self, t:datetime) -> bool:
+    def reached(self, t:datetime) -> bool:
         if t is None:
             return True
         else:

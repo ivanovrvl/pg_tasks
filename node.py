@@ -88,7 +88,7 @@ class RefreshWorkers(CommonTask):
         self.next_refresh = None
 
     def process(self):
-        if self.check(self.next_refresh):
+        if self.reached(self.next_refresh):
             self.next_refresh = self.controller.now() + config.workers_refresh_inverval
             self.schedule(self.next_refresh)
             self.info(Messages.REFRESH_WORKERS)
@@ -117,7 +117,7 @@ class RefreshTasks(CommonTask):
 
     def process(self):
         global no_more_waiting_tasks
-        if self.check(self.next_refresh):
+        if self.reached(self.next_refresh):
             no_more_waiting_tasks = True
             self.info(Messages.REFRESH_TASKS)
             # update the status of tasks every 55 minutes
@@ -317,7 +317,7 @@ class Worker(DbObject):
                 self.lock()
 
         if self.lock_time is None \
-        or self.check(self.lock_time - config.half_locking_time):
+        or self.reached(self.lock_time - config.half_locking_time):
             if self.lock():
                 t = self.lock_time - config.half_locking_time
             else:
@@ -326,7 +326,7 @@ class Worker(DbObject):
                     t = t + config.half_locking_time
                 else:
                     t = self.controller.now() + config.half_locking_time
-            if self.check(t):
+            if self.reached(t):
                 self.schedule(self.controller.now() + config.half_locking_time)
         return self.has_lock
 
@@ -422,7 +422,7 @@ class Task(DbObject):
             # don`t schedule in a far future to allow task to be unloaded. RefreshTasks will reload sometime
             super().schedule(t)
 
-    def check_with_limit(self, t:datetime):
+    def reached_with_limit(self, t:datetime):
         if t is None:
             return True
         else:
@@ -574,7 +574,7 @@ class Task(DbObject):
         if process is not None:
             if self.next_process_check is None:
                 self.check_proces_state_interval = config.min_check_proces_state_interval
-            if self.check(self.next_process_check):
+            if self.reached(self.next_process_check):
                 res_code = process.check_result()
                 if res_code is None:
                     self.next_process_check = self.controller.now() + self.check_proces_state_interval
@@ -590,7 +590,7 @@ class Task(DbObject):
                     self.set_process(None)
 
         # check task.next_start reached
-        if self.next_start is not None and self.check_with_limit(self.next_start):
+        if self.next_start is not None and self.reached_with_limit(self.next_start):
 
             if self.db_state is None:
                 self.refresh_db_state()
@@ -740,7 +740,7 @@ def add_period_until(start:datetime, until:datetime, period:relativedelta):
 
 def on_task_before(task: CommonTask):
     if task.__next_retry__ is not None:
-        if not task.check(task.__next_retry__):
+        if not task.reached(task.__next_retry__):
             return True
 
 def on_task_success(task: CommonTask):
