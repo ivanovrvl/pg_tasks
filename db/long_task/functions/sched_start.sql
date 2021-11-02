@@ -12,9 +12,9 @@ BEGIN
     WHERE id = p_id;
     IF v_clone THEN
       INSERT INTO long_task.task(
-          params, state_id, priority, worker_id, last_state_change, command, created, group_id, cwd
+          params, state_id, priority, worker_id, last_state_change, command, created, group_id, cwd, shed_parent_id
       )
-      SELECT params, 'AW', priority, NULL, now(), command, now(), group_id, cwd
+      SELECT params, 'AW', priority, NULL, now(), command, now(), group_id, cwd, id
       FROM long_task.task
       WHERE id = p_id
       RETURNING id INTO v_id;    

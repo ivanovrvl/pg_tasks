@@ -244,7 +244,18 @@ IS 'The root directory for processes being started absolute or relatively to con
 		]]></sql> 	
 	</changeSet>
 
+	<changeSet id="02_11_2021" author="ivanovr" runOnChange="false" >
+		<sql><![CDATA[	
+ALTER TABLE long_task.task ADD COLUMN IF NOT EXISTS shed_parent_id BIGINT;
+		]]></sql> 	
+	</changeSet>
 
+	<changeSet id="02_11_2021-2" author="ivanovr" runOnChange="true" >
+		<sql><![CDATA[	
+COMMENT ON COLUMN long_task.task.cwd
+IS 'Task id that cloned this one';
+		]]></sql> 	
+	</changeSet>
 		
 </databaseChangeLog>
 
