@@ -779,7 +779,13 @@ def run():
     db_config = config.db
     while True: # DB reconnect loop
         try:
-            conn = psycopg2.connect(host=db_config['host'], dbname=db_config['database'], user=db_config['user'], password=db_config['password'])
+            conn = psycopg2.connect( \
+                host=db_config['host'], \
+                port=db_config['port'], \
+                dbname=db_config['database'], \
+                user=db_config['user'], \
+                password=db_config['password']  \
+            )
             try:
 
                 conn.autocommit = True
