@@ -2,7 +2,7 @@
 
 import avl_tree
 import linked_list
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class ActiveObject:
 
@@ -21,6 +21,9 @@ class ActiveObject:
     def process(self):
         pass
 
+    def process_internal(self):
+        self.process()
+
     def is_signaled(self) -> bool:
         return self.__signaled__.in_list()
 
@@ -33,6 +36,20 @@ class ActiveObject:
                 self.controller.__tree_by_t__.remove(self.__tree_by_t__)
                 self.t = t
                 self.controller.__tree_by_t__.add(self.__tree_by_t__)
+
+    def schedule_delay(self, delay:timedelta):
+        t = self.controller.now() + delay
+        self.schedule(t)
+        return t
+
+    def schedule_milliseconds(self, delay):
+        return self.schedule_delay(timedelta(milliseconds=delay))
+
+    def schedule_seconds(self, delay):
+        return self.schedule_delay(timedelta(seconds=delay))
+
+    def schedule_minutes(self, delay):
+        return self.schedule_delay(timedelta(minutes==delay))
 
     def unschedule(self):
         self.controller.__tree_by_t__.remove(self.__tree_by_t__)
@@ -65,10 +82,41 @@ class ActiveObject:
         if t is not None:
             return t.owner
 
+    def now(self):
+        return self.controller.now()
+
     def close(self):
         self.controller.__tree_by_t__.remove(self.__tree_by_t__)
         self.controller.__tree_by_id__.remove(self.__tree_by_id__)
         self.__signaled__.remove()
+
+class ActiveObjectWithRetries(ActiveObject):
+
+    def __init__(self, controller, type_name=None, id=None, priority:int=0):
+        super().__init__(controller, type_name, id, priority)
+        self.__next_retry__ = None
+        self.__next_retry_interval__ = None
+        self.min_retry_interval = 1
+        self.max_retry_interval = 60
+
+    def was_error(self):
+        return self.__next_retry__ is not None
+
+    def process_internal(self):
+        try:
+            if self.__next_retry__ is None \
+            or self.reached(self.__next_retry__):
+                super().process_internal()
+                self.__next_retry__ = None
+        except:
+            if self.__next_retry__ is None:
+                self.__next_retry_interval__ = self.min_retry_interval
+            else:
+                self.__next_retry_interval__ = self.__next_retry_interval__ + self.__next_retry_interval__
+                if self.__next_retry_interval__ > self.max_retry_interval:
+                    self.__next_retry_interval__ = self.max_retry_interval
+            self.__next_retry__ = self.schedule_delay(timedelta(seconds=self.__next_retry_interval__))
+            raise
 
 def __compkey_id__(k, n):
     if k[0] > n.owner.type_name:
@@ -107,6 +155,7 @@ class ActiveObjectsController():
         self.__tree_by_t__ = avl_tree.Tree(__comp_t__)
         self.__tree_by_id__ = avl_tree.Tree(__comp_id__)
         self.__signaled__ = [linked_list.DualLinkedList() for i in range(0, priority_count)]
+        self.terminated: bool = False
 
     def find(self, type_name, id) -> ActiveObject:
         node = self.__tree_by_id__.find((type_name,id), __compkey_id__)
@@ -128,12 +177,12 @@ class ActiveObjectsController():
                 if on_before(obj):
                     return
             if on_error is None:
-                obj.process()
+                obj.process_internal()
                 if on_success is not None:
                     on_success(obj)
             else:
                 try:
-                    obj.process()
+                    obj.process_internal()
                     if on_success is not None:
                         on_success(obj)
                 except Exception as e:
@@ -145,7 +194,7 @@ class ActiveObjectsController():
                 if item is not None:
                     return item
 
-        while True:
+        while not self.terminated:
             obj = self.get_nearest()
             next_time = None
             while obj is not None:
@@ -166,6 +215,7 @@ class ActiveObjectsController():
                 do(item.owner)
                 n -= 1
                 if n < 0: break
+                if self.terminated: break
                 item = remove_next_signaled()
 
     def for_each_object(self, type_name, func):
@@ -190,5 +240,18 @@ class ActiveObjectsController():
 
     def signal(self, type_name):
         self.for_each_object(type_name, lambda o: o.signal())
+
+    def terminate(self):
+        self.terminated = True
+
+def simple_loop(controller:ActiveObjectsController):
+    import time
+    while not controller.terminated:
+        next_time = controller.process()
+        if next_time is not None:
+            delta = (next_time - controller.now()).total_seconds()
+            if delta > 0:
+                time.sleep(delta)
+
 
 
