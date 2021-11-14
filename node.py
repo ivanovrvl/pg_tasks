@@ -748,6 +748,8 @@ def add_period_until(start:datetime, until:datetime, period:relativedelta):
     return add(start, period)
 
 def terminate() -> bool:
+    if controller.terminated:
+        return True
     return worker.stop > 1 and executing_task_count == 0 and locked_other_workers_count == 0
 
 def unlock_workers():
@@ -798,6 +800,7 @@ def run():
                                 wait_time = dt
                         else:
                             wait_time = 0.1
+
                     if terminate():
                         unlock_workers()
                         return
