@@ -265,15 +265,17 @@ class Worker(DbObject):
         if self.has_lock == val: return False
         self.has_lock = val
         if val:
-            if self.id != config.worker_id: locked_other_workers_count += 1
             self.info(Messages.LOCK_AQUIRED)
             if self.id == config.worker_id:
                 startMoreTasks.start_more()
                 refreshTasks.refresh_all()
+            else:
+                locked_other_workers_count += 1
         else:
-            self.lock_time = None
-            if self.id != config.worker_id: locked_other_workers_count -= 1
             self.info(Messages.LOCK_RELEASED)
+            self.lock_time = None
+            if self.id != config.worker_id:
+                locked_other_workers_count -= 1
         return True
 
     def set_stop(self, val) -> bool:
