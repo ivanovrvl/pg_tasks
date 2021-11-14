@@ -24,7 +24,7 @@ class AttrDict(dict):
 config = AttrDict(get_config())
 
 sys.path.append(os.path.abspath('py_active_objects'))
-from active_objects import ActiveObject, ActiveObjectsController
+from active_objects import ActiveObjectWithRetries, ActiveObjectsController
 
 controller = ActiveObjectsController(priority_count=2)
 
@@ -64,12 +64,12 @@ class TaskProcess:
     def terminate(self):
         self.proc.terminate()
 
-class CommonTask(ActiveObject):
+class CommonTask(ActiveObjectWithRetries):
 
     def __init__(self, controller, type_name = None, id = None):
         super().__init__(controller, type_name, id)
-        self.__retry_delay__ = None
-        self.__next_retry__ = None
+        self.min_retry_interval = config.min_task_retry_delay.total_seconds()
+        self.max_retry_interval = config.max_task_retry_delay.total_seconds()
 
     def info(self, msg:str):
         if msg is not None:
@@ -79,6 +79,13 @@ class CommonTask(ActiveObject):
         if msg is not None:
             print(msg)
 
+    def process_internal(self):
+        try:
+            super().process_internal()
+        except Exception as e:
+            self.error(str(e))
+            if config.debug:
+                raise e
 
 class RefreshWorkers(CommonTask):
     """
@@ -517,7 +524,7 @@ class Task(DbObject):
         if canceled:
             self.info(Messages.TASK_CANCELLED)
         else:
-            self.info(f'{error}')
+            self.error(error)
         return res
 
     def complete(self):
@@ -682,8 +689,8 @@ class StartMoreTasks(CommonTask):
                     task.set_db_state(db_state)
                     task.start(row[0], row[1])
                 except Exception as e:
-                    on_task_error(task, e)
                     task.fail(str(e))
+                    if config.debug: raise e
 
     def start_more(self):
         if not no_more_waiting_tasks and self.can_start_more():
@@ -740,27 +747,6 @@ def add_period_until(start:datetime, until:datetime, period:relativedelta):
                 return t
     return add(start, period)
 
-def on_task_before(task: CommonTask):
-    if task.__next_retry__ is not None:
-        if not task.reached(task.__next_retry__):
-            return True
-
-def on_task_success(task: CommonTask):
-    task.__retry_delay__ = None
-    task.__next_retry__ = None
-
-def on_task_error(task: CommonTask, error):
-    if config.debug: raise error
-    if task.__retry_delay__ is None:
-        task.__retry_delay__ = config.min_task_retry_delay
-    else:
-        task.__retry_delay__ += task.__retry_delay__
-        if task.__retry_delay__ > config.max_task_retry_delay:
-            task.__retry_delay__ = config.max_task_retry_delay
-    task.__next_retry__ = controller.now() + task.__retry_delay__
-    task.schedule(task.__next_retry__)
-    task.error(str(error))
-
 def terminate() -> bool:
     return worker.stop > 1 and executing_task_count == 0 and locked_other_workers_count == 0
 
@@ -803,7 +789,7 @@ def run():
 
                 while True: # Main loop
 
-                    next_time = controller.process(on_before=on_task_before, on_success=on_task_success, on_error=on_task_error)
+                    next_time = controller.process()
                     wait_time = 5 if config.debug else 60
                     if next_time is not None:
                         dt = (next_time - controller.now()).total_seconds()
