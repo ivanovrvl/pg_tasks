@@ -1,5 +1,3 @@
-# This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/py_active_objects/blob/main/LICENSE
-
 class  TreeNode:
 
     def __init__(self, owner = None):
@@ -13,7 +11,6 @@ class  TreeNode:
         if Result is not None:
             while Result.__left__ is not None:
                 Result = Result.__left__
-            return Result
         else:
             Result = self
             while (Result.__parent__ is not None) and (Result.__parent__.__right__ is Result):

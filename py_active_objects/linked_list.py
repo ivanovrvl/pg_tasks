@@ -1,5 +1,3 @@
-# This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/py_active_objects/blob/main/LICENSE
-
 class DualLinkedListItem:
 
     def __init__(self, owner = None):
@@ -8,7 +6,6 @@ class DualLinkedListItem:
             self.owner = owner
 
     def in_list(self) -> bool:
-
       return self.__list__ is not None
 
     def get_next(self):
@@ -31,7 +28,7 @@ class DualLinkedList:
 
     def add(self, item: DualLinkedListItem):
         if item.__list__ is not None:
-            self.__list__.Remove(self)
+            item.__list__.remove(item)
         if self.first is None:
             self.first = item
             self.last = item
