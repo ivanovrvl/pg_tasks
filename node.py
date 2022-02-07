@@ -1,5 +1,4 @@
 # This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/pg_tasks/blob/main/LICENSE
-
 import json
 import sys, os, select, time, datetime
 import psycopg2.extensions
@@ -7,6 +6,9 @@ import subprocess
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
 from config import get_config, Messages
+import copy
+import signal
+import eventfd
 
 class AttrDict(dict):
     def __transform__(value):
@@ -36,11 +38,14 @@ worker = None # Node`s worker
 conn = None # DB Connection
 
 no_more_waiting_tasks: bool = False # no more AW tasks
-executing_task_count:int = 0
 locked_other_workers_count:int = 0
 
+wakeup = eventfd.EventFD()
+
 def get_msg(msg_const:str, default:str):
-    res = messages.get(msg_const, default)
+    return messages.get(msg_const, default)
+
+child_processes = {}
 
 class TaskProcess:
     """
@@ -54,15 +59,31 @@ class TaskProcess:
             else:
                 cmds.append(c)
         self.id = id
+        self.wait_until = None
+        self.exit_code = None
         self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd = cwd)
         #self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, stdout=None, stderr=None, cwd = cwd)
         #self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, cwd = cwd)
 
+    def set_exit_code(self, exit_code:int):
+        self.exit_code = exit_code
+        self.proc = None
+
     def check_result(self):
-        return self.proc.poll()
+        if self.exit_code is not None:
+            return self.exit_code
+        exit_code = self.proc.poll()
+        if exit_code is not None:
+            self.set_exit_code(exit_code)
+        return exit_code
 
     def terminate(self):
-        self.proc.terminate()
+        if self.proc is not None:
+            self.proc.terminate()
+
+    def kill(self):
+        if self.proc is not None:
+            self.proc.kill()
 
 class CommonTask(ActiveObjectWithRetries):
 
@@ -159,10 +180,85 @@ class DbObject(CommonTask):
     A task object corresponding to the record in table_name table
     Identified by (type_name, id)
     """
+    #type_name
+    #table_name
+    #table_fields = ['active', 'locked_until', 'stop']
+    #notify_key = '!' + table_name
 
     type_name = None
     table_name = None
     table_fields = None
+    version_field_name = None
+
+    def __init__(self, controller, id = None):
+        super().__init__(controller, self.__class__.type_name, id)
+        self.__old_db_state__ = None # last known DB state
+        self.db_state = None # current state
+        self.changed_fields = set()
+
+    def set_field(self, name:str, value, set_changed:bool=True):
+        if self.db_state is None:
+            raise Exception("Can`t set field")
+        try:
+            cur = self.db_state[name]
+            if cur is value or cur == value:
+                return False
+        except KeyError:
+            pass
+        self.db_state[name] = value
+        if set_changed:
+            self.changed_fields.add(name)
+        return True
+
+    def set_deleted(self):
+        self.__old_db_state__ = None
+        self.db_state = None
+        self.changed_fields.clear()
+
+    def set_db_state(self, state):
+        if self.__old_db_state__ is None \
+        or (self.__class__.version_field_name is not None \
+        and self.__old_db_state__[self.__class__.version_field_name] != state[self.__class__.version_field_name]):
+            self.__old_db_state__ = state
+            self.db_state = copy.copy(state)
+            self.changed_fields.clear()
+        else:
+            self.__old_db_state__ = state
+            old = self.db_state
+            self.db_state = copy.copy(state)
+            for n in self.changed_fields:
+                self.db_state[n] = old[n]
+        self.signal()
+
+    def refresh_db_state(self):
+        self.__old_db_state__ = None
+        with conn.cursor() as cur:
+            sql = f"""
+                SELECT id,{','.join(self.__class__.table_fields)}
+                FROM {self.__class__.table_name}
+                WHERE id = %s"""
+            cur.execute(sql, (self.id,))
+            refresh_db_states(cur, self.__class__, set([self.id]))
+
+    def save_db_state(self):
+        if len(self.changed_fields) > 0:
+            sql = f"""
+                update {self.__class__.table_name}
+                set {','.join([n + '=%s' for n in self.changed_fields])}
+                where id=%s
+            """
+            values = [self.db_state[n] for n in self.changed_fields]
+            values.append(self.id)
+            if self.__class__.version_field_name is not None:
+                values.append(self.db_state[self.__class__.version_field_name])
+                sql = sql + f"and {self.__class__.version_field_name}=%s"
+            with conn.cursor() as cur:
+                cur.execute(sql, values)
+                self.changed_fields.clear()
+                if cur.rowcount == 0:
+                    self.refresh_db_state()
+                    if debug:
+                        self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
 
     def info(self, msg:str):
         if msg is not None:
@@ -171,18 +267,6 @@ class DbObject(CommonTask):
     def error(self, msg:str):
         if msg is not None:
             super().error(self.type_name + str(self.id) + '! ' + msg)
-
-    def __init__(self, controller, id = None):
-        super().__init__(controller, self.type_name, id)
-        self.db_state = None
-
-    def set_db_state(self, state):
-        self.db_state = state
-        if state is not None:
-            self.signal()
-
-    def set_deleted(self):
-        self.set_db_state({"deleted": True})
 
     @classmethod
     def clear_changes(cls):
@@ -216,16 +300,6 @@ class DbObject(CommonTask):
                     task.set_deleted()
 
             cls.deleted.clear()
-
-    def refresh_db_state(self):
-        self.db_state = None
-        with conn.cursor() as cur:
-            sql = f"""
-                SELECT id,{','.join(self.__class__.table_fields)}
-                FROM {self.__class__.table_name}
-                WHERE id = %s"""
-            cur.execute(sql, (self.id,))
-            refresh_db_states(cur, self.__class__, set([self.id]))
 
     @classmethod
     def find_or_new(cls, id) -> CommonTask:
@@ -301,7 +375,7 @@ class Worker(DbObject):
             lock_until = self.controller.now() + config.half_locking_time + config.half_locking_time
             sql = f"SELECT {config.schema}.lock_worker(%s,%s,%s,%s,%s,%s)"
             if self.id == config.worker_id:
-                cur.execute(sql, (self.id, config.group_id, config.node_name, executing_task_count, lock_until, self.lock_time))
+                cur.execute(sql, (self.id, config.group_id, config.node_name, len(child_processes), lock_until, self.lock_time))
             else:
                 cur.execute(sql, (self.id, -1, config.node_name, -1, lock_until, self.lock_time))
             res = cur.fetchone()[0]
@@ -342,10 +416,9 @@ class Worker(DbObject):
         return self.has_lock
 
     def unlock_and_deactivate(self):
-
         with conn.cursor() as cur:
             sql = f"UPDATE {Worker.table_name} SET active=false, locked_until=NULL, task_count=%s WHERE id=%s"
-            cur.execute(sql, (executing_task_count if self.id==config.worker_id else 0, self.id))
+            cur.execute(sql, (len(child_processes) if self.id==config.worker_id else 0, self.id))
             self.db_state['active'] = False
             self.db_state['locked_until'] = None
             self.set_has_lock(False)
@@ -357,6 +430,7 @@ class Worker(DbObject):
             cur.execute(sql, (self.id,))
 
     def process(self):
+        self.save_db_state()
         if self.db_state is not None:
             try:
                 self.set_stop(self.db_state['stop'])
@@ -374,6 +448,7 @@ class Worker(DbObject):
                         if self.db_state['active']: # check again after lock
                             self.recover_worker_tasks()
                         self.unlock_and_deactivate()
+        self.save_db_state()
 
     def is_intresting_db_state(db_state:map) -> bool:
         return True
@@ -388,8 +463,8 @@ class Task(DbObject):
 
     type_name = "t"
     table_name = f"{config.schema}.task"
-    check_changed_field = 'started'
-    table_fields = ['state_id', 'worker_id', 'group_id', 'next_start', 'shed_period_id', 'shed_period_count', check_changed_field]
+    version_field_name = 'last_state_change'
+    table_fields = ['state_id', 'worker_id', 'group_id', 'next_start', 'shed_period_id', 'shed_period_count', version_field_name]
     notify_key = f'!{table_name}.{config.group_id}'
 
     def __init__(self, controller, id = None):
@@ -397,32 +472,73 @@ class Task(DbObject):
         self.priority = 1
         self.__process__:TaskProcess = None
         self.next_process_check = None
-        self.next_start = None
-        self.check_changed_val = None
+        self.stop_type = None # тип прерывания 'S' - Stop, 'C' - Cancel
 
     def set_process(self, process:TaskProcess):
-        global executing_task_count
+        global child_processes
         if self.__process__ is process:
             return
-        if self.__process__ is None:
-            if process is not None:
-                executing_task_count += 1
-        else:
+        if self.__process__ is not None:
+            child_processes.pop(self.pid)
             if process is None:
-                executing_task_count -= 1
                 startMoreTasks.start_more()
+        if process is not None:
+            self.pid = process.proc.pid
+            child_processes[self.pid] = self
+            self.stop_type = None
         self.__process__ = process
 
     def get_process(self) -> TaskProcess:
         return self.__process__
 
-    def terminate_process(self):
+    def set_stop(self, stop_type:str) -> bool:
+        if self.__process__ is not None:
+            if stop_type == 'S':
+                if self.stop_type is None:
+                    self.__process__.terminate()
+                    self.stop_type = stop_type
+                    self.next_process_check = None # check the process state immediatelly
+                    if config.debug:
+                        self.info('Stopping')
+                    return True
+            elif stop_type == 'C':
+                if self.stop_type is None or self.stop_type == 'S':
+                    self.__process__.kill()
+                    self.stop_type = stop_type
+                    self.next_process_check = None # check the process state immediatelly
+                    self.signal()
+                    if config.debug:
+                        self.info('Cancelling')
+                    return True
+        return False
+
+    def update_process_state(self):
+        process = self.get_process()
+        if process is not None:
+            res_code = process.check_result()
+            if res_code is None: return True
+            self.set_process(None)
+            if self.stop_type is None or self.stop_type == 'S':
+                if res_code == 0:
+                    self.complete()
+                else:
+                    self.fail(Messages.TASK_FAILED.format(res_code))
+            else:
+                self.fail(Messages.TASK_FAILED.format(res_code), canceled=True)
+        return False
+
+    def set_process_exit_code(self, exit_code:int):
+        if exit_code is not None:
+            process = self.get_process()
+            if process is not None:
+                process.set_exit_code(exit_code)
+
+    def kill_process(self):
         if self.__process__ is None:
             return
-        if config.debug:
-            self.info('kill process')
+        self.info('kill process')
         try:
-            self.__process__.terminate()
+            self.__process__.kill()
         except Exception as e:
             if config.debug: raise e
             self.error(str(e))
@@ -464,9 +580,12 @@ class Task(DbObject):
             elif period == 'MON':
                 add_interval = relativedelta(months=count)
             if add_interval is not None:
-                return add_period_until(self.next_start, controller.now(), add_interval) + add_interval
+                return add_period_until(self.db_state['next_start'], controller.now(), add_interval) + add_interval
 
     def start(self, command, cwd:str=None):
+        if self.update_process_state():
+            raise Exception(Message.RELUNCH_ACTIVE)
+
         if cwd is None or not os.path.isabs(cwd):
             root = config.get("root_dir")
             if root is None:
@@ -476,156 +595,115 @@ class Task(DbObject):
             else:
                 cwd = root
 
-        process = self.get_process()
-        if process is not None:
-            res_code = process.check_result()
-            if res_code is not None:
-                self.set_process(None)
-                process = None
-            elif res_code == 0:
-                self.info(Messages.TASK_COMPLETED)
-            else:
-                self.info(Messages.TASK_FAILED.format(res_code))
-        if process is not None:
-            self.fail(self.error(Message.RELUNCH_ACTIVE))
-        else:
-            proc = TaskProcess(list(command), self.id, cwd)
-            self.set_process(proc)
-            self.next_process_check = None # check the process state immediatelly
+        proc = TaskProcess(list(command), self.id, cwd)
+        self.set_process(proc)
+        self.next_process_check = None # check the process state immediatelly
+
         self.refresh_db_state()
         self.info(Messages.TASK_STARTED.format(list(command)))
 
-    def update_status(self, new_state_id, error:str, check_changed_val=None) -> bool:
-        with conn.cursor() as cur:
-            sql = f"""
-                    UPDATE {Task.table_name}
-                    SET state_id=%s
-                    , error = %s
-                    WHERE id=%s AND state_id in('AE','AC')
-                    """
-            if check_changed_val is not None:
-                sql = sql + f" AND {Task.check_changed_field}=%s"
-                cur.execute(sql, (new_state_id, error, self.id, check_changed_val))
-            else:
-                cur.execute(sql, (new_state_id, error, self.id))
-
-            if self.db_state is not None:
-                if cur.rowcount > 0:
-                    self.db_state['state_id'] = new_state_id
-                else:
-                    self.db_state = None
-
-            if config.debug:
-                if cur.rowcount == 0:
-                    self.error(Messages.CANT_UPDATE_TASK_STATE)
-            return cur.rowcount > 0
-
-    def fail(self, error:str, canceled:bool=False, force:bool=False):
-        res = self.update_status('CC' if canceled else 'CF', error, None if force else self.check_changed_val)
-        self.terminate_process()
+    def fail(self, error:str, canceled:bool=False):
+        if self.db_state is None: self.refresh_db_state()
+        if self.db_state['state_id'].startswith('A'):
+            self.set_field("state_id", 'CC' if canceled else 'CF')
+            self.set_field("error", error)
+        self.kill_process()
         if canceled:
             self.info(Messages.TASK_CANCELLED)
         else:
             self.error(error)
-        return res
 
     def complete(self):
-        res = self.update_status('CS', None, self.check_changed_val)
-        if res:
-            self.info(Messages.TASK_COMPLETED)
-        return res
+        if self.db_state['state_id'].startswith('A'):
+            self.set_field("state_id", 'CS')
+        self.info(Messages.TASK_COMPLETED)
+
+    def set_watchdog(self):
+        process = self.get_process()
+        if process is not None and process.wait_until is None:
+            process.wait_until = self.schedule_seconds(10)
 
     def process(self):
 
+        self.save_db_state()
+
         if worker.stop >= 3:
-            if worker.has_lock:
-                self.fail(Messages.TASK_INTERRUPTED, force=True)
-            self.close()
+            self.set_stop('C')
+            if not self.update_process_state():
+                self.close()
             return
 
-        # check the DB state
+        if not worker.has_lock:
+            self.set_stop('C')
+
         if self.db_state is not None:
-
-            if self.db_state.get("deleted"):
-                self.close()
-                return
-
-            self.next_start = self.db_state['next_start']
-
-            process = self.get_process()
             state_id = self.db_state['state_id']
             p_id = self.db_state['worker_id']
-            if process is not None:
-                if p_id is None or p_id != config.worker_id \
-                or self.db_state[Task.check_changed_field] != self.check_changed_val:
-                    self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
-                    self.terminate_process()
-                    self.signal()
-                elif state_id == 'AC':
-                    self.fail(Messages.TASK_CANCELLED, True)
-                elif state_id.startswith("C"):
-                    if not self.db_state.get("stop_detected", False):
-                        self.db_state["stop_detected"] = True # to avoid repeat
-                        # the task itself set the completion
-                        # let's start checking the status of the process more often
-                        self.next_process_check = None
-                elif state_id != 'AE':
-                    self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
-                    self.terminate_process()
-                    self.signal()
-            elif worker.has_lock:
-                if p_id is not None and p_id == config.worker_id:
-                    if state_id == 'AC':
-                        self.fail(Messages.TASK_CANCELLED, canceled=True, force=True)
-                    elif state_id == 'AE':
-                        self.fail(Messages.TASK_PHANTOM, force=True)
+            if self.db_state.get("deleted"):
+                self.set_stop('C')
+            elif p_id is None or p_id != config.worker_id:
+                self.next_process_check = None
+                self.set_watchdog()
+                if state_id.startswith('A') and state_id != 'AW':
+                    if self.set_stop('C'):
+                        self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
+            elif state_id == 'AS':
+                self.set_stop('S')
+            elif state_id == 'AC':
+                self.set_stop('C')
 
-        # check OS process state periodicically
-        process = self.get_process()
-        if process is not None:
+        if self.update_process_state():
+
+            process = self.get_process()
+            if process.wait_until is not None and self.reached(process.wait_until):
+                self.set_stop('C')
+
+            if self.stop_type is None and self.db_state is not None:
+                state_id = self.db_state['state_id']
+                if state_id != 'AE':
+                    self.next_process_check = None
+                    self.set_watchdog()
+                    if not state_id.startswith('C'):
+                        self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
+                        self.set_stop('C')
+
             if self.next_process_check is None:
                 self.check_proces_state_interval = config.min_check_proces_state_interval
             if self.reached(self.next_process_check):
-                res_code = process.check_result()
-                if res_code is None:
-                    self.next_process_check = self.controller.now() + self.check_proces_state_interval
-                    self.schedule(self.next_process_check)
-                    self.check_proces_state_interval = self.check_proces_state_interval + self.check_proces_state_interval
-                    if self.check_proces_state_interval > config.max_check_proces_state_interval:
-                        self.check_proces_state_interval = config.max_check_proces_state_interval
-                elif res_code == 0:
-                    self.complete()
-                    self.set_process(None)
-                else:
-                    self.fail(Messages.TASK_FAILED.format(res_code))
-                    self.set_process(None)
+                self.next_process_check = self.controller.now() + self.check_proces_state_interval
+                self.schedule(self.next_process_check)
+                self.check_proces_state_interval = self.check_proces_state_interval + self.check_proces_state_interval
+                if self.check_proces_state_interval > config.max_check_proces_state_interval:
+                    self.check_proces_state_interval = config.max_check_proces_state_interval
+
+        else:
+            if worker.has_lock and self.db_state is not None:
+                state_id = self.db_state['state_id']
+                if state_id.startswith('A') and state_id != 'AW':
+                    self.fail(Messages.TASK_PHANTOM)
 
         # check task.next_start reached
-        if self.next_start is not None and self.reached_with_limit(self.next_start):
+        if self.db_state is not None and worker.has_lock:
+            next_start = self.db_state['next_start']
+            if next_start is not None and self.reached_with_limit(next_start):
+                new_next_start = self.get_next_start()
+                with conn.cursor() as cur:
+                    sql = f"UPDATE {Task.table_name} SET next_start=%s WHERE id=%s AND next_start=%s"
+                    cur.execute(sql, (new_next_start, self.id, next_start))
+                    if cur.rowcount > 0:
+                        self.set_field('next_start', new_next_start, set_changed=False)
+                        if new_next_start is not None:
+                            self.schedule_with_limit(new_next_start)
+                        sql = f"SELECT {config.schema}.sched_start(%s)"
+                        cur.execute(sql, (self.id,))
+                        new_task_id = cur.fetchone()[0]
+                        if new_task_id is not None:
+                            new_task = Task.find_or_new(new_task_id)
+                            new_task.refresh_db_state()
+                    else:
+                        self.refresh_db_state()
 
-            if self.db_state is None:
-                self.refresh_db_state()
-            next_start = self.get_next_start()
-
-            with conn.cursor() as cur:
-                sql = f"UPDATE {Task.table_name} SET next_start=%s WHERE id=%s AND next_start=%s"
-                cur.execute(sql, (next_start, self.id, self.next_start))
-                if cur.rowcount > 0:
-                    self.next_start = next_start
-                    if self.next_start is not None:
-                        self.schedule_with_limit(self.next_start)
-                    self.set_db_state(None)
-                    sql = f"SELECT {config.schema}.sched_start(%s)"
-                    cur.execute(sql, (self.id,))
-                    new_task_id = cur.fetchone()[0]
-                    if new_task_id is not None:
-                        new_task = Task.find_or_new(new_task_id)
-                        new_task.refresh_db_state()
-                else:
-                    # task.next_start has been changed by another node
-                    self.next_start = None
-                    self.set_db_state(None)
-
+        self.save_db_state()
         # if the activities are not planned in the near future
         # then Task is not needed yet, unload it
         if not(self.is_signaled() or self.is_scheduled()):
@@ -635,7 +713,7 @@ class Task(DbObject):
     def close(self):
         if config.debug:
             self.info('Close')
-        self.terminate_process()
+        self.kill_process()
         super().close()
 
     def is_intresting_db_state(db_state:map) -> bool:
@@ -663,11 +741,11 @@ class StartMoreTasks(CommonTask):
 
     def can_start_more(self):
         global no_more_waiting_tasks
-        return executing_task_count < config.max_task_count \
+        return len(child_processes) < config.max_task_count \
             and worker.has_lock and worker.stop == 0
 
     def process(self):
-        global executing_task_count, no_more_waiting_tasks
+        global no_more_waiting_tasks
         if self.can_start_more():
             with conn.cursor() as cur:
                 sql = f"SELECT start_task FROM {config.schema}.start_task(%s,%s)"
@@ -687,11 +765,11 @@ class StartMoreTasks(CommonTask):
                 task = Task.find_or_new(id)
                 try:
                     db_state = get_db_state(cur, row)
-                    task.check_changed_val = db_state.get(Task.check_changed_field)
                     task.set_db_state(db_state)
                     task.start(row[0], row[1])
                 except Exception as e:
                     task.fail(str(e))
+                    task.save_db_state()
                     if config.debug: raise e
 
     def start_more(self):
@@ -752,7 +830,7 @@ def add_period_until(start:datetime, until:datetime, period:relativedelta):
 def terminate() -> bool:
     if controller.terminated:
         return True
-    return worker.stop > 1 and executing_task_count == 0 and locked_other_workers_count == 0
+    return worker.stop > 1 and len(child_processes) == 0 and locked_other_workers_count == 0
 
 def unlock_workers():
     def stop(w:Worker):
@@ -762,11 +840,32 @@ def unlock_workers():
     if worker.has_lock:
         worker.unlock_and_deactivate()
 
+def on_child_signal(signum, frame):
+    try:
+        while True:
+            child_pid, exit_code = os.waitpid(-1, os.WNOHANG)
+            if child_pid <= 0: break
+            task = child_processes.get(child_pid)
+            if task is not None:
+                task.set_process_exit_code(exit_code)
+                task.signal()
+                wakeup.set()
+                if config.debug:
+                    print('SIGCHLD', child_pid, exit_code)
+    except ChildProcessError as e:
+        pass
+
 def run():
     global conn
 
     delay_after_db_error = config.min_delay_after_db_error
     db_config = config.db
+
+    try:
+        signal.signal(signal.SIGCHLD, on_child_signal)
+    except AttributeError as e:
+        print(e)
+
     while True: # DB reconnect loop
         try:
             conn = psycopg2.connect( \
@@ -807,8 +906,9 @@ def run():
                         unlock_workers()
                         return
 
-                    if config.debug: print(wait_time)
-                    r, w, e = select.select([conn], [], [], wait_time)
+                    #if config.debug: print(wait_time)
+                    r, w, e = select.select([conn, wakeup], [], [], wait_time)
+                    wakeup.clear()
 
                     Worker.clear_changes()
                     Task.clear_changes()
