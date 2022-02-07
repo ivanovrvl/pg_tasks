@@ -309,6 +309,7 @@ class ActiveObjectsController():
     def process(self, on_before=None, on_success=None, on_error=None) -> datetime:
 
         def do(obj:ActiveObject):
+            obj.unschedule()
             if on_before is not None:
                 if on_before(obj):
                     return

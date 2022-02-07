@@ -1,3 +1,5 @@
+# This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/pg_tasks/blob/main/LICENSE
+
 class  TreeNode:
 
     def __init__(self, owner = None):
@@ -350,7 +352,7 @@ class  Tree:
                     return Result
         return Result
 
-    def find(self, Data: TreeNode, Comp) -> TreeNode:
+    def find(self, Data, Comp) -> TreeNode:
         if Comp is None: Comp = self.__comp__
         Result = self.__root__
         while Result is not None:
