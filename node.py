@@ -627,16 +627,9 @@ class Task(DbObject):
 
         self.save_db_state()
 
-        if worker.stop >= 3:
+        if not worker.has_lock or worker.stop >= 3:
             self.set_stop('C')
-            if not self.update_process_state():
-                self.close()
-            return
-
-        if not worker.has_lock:
-            self.set_stop('C')
-
-        if self.db_state is not None:
+        elif self.db_state is not None:
             state_id = self.db_state['state_id']
             p_id = self.db_state['worker_id']
             if self.db_state.get("deleted"):
@@ -683,7 +676,7 @@ class Task(DbObject):
                     self.fail(Messages.TASK_PHANTOM)
 
         # check task.next_start reached
-        if self.db_state is not None and worker.has_lock:
+        if self.db_state is not None and worker.has_lock and self.stop_type is None:
             next_start = self.db_state['next_start']
             if next_start is not None and self.reached_with_limit(next_start):
                 new_next_start = self.get_next_start()
@@ -855,6 +848,29 @@ def on_child_signal(signum, frame):
     except ChildProcessError as e:
         pass
 
+
+def deobfuscate(s):
+    PREFIX = "OBF:"
+    if not s.startswith(PREFIX):
+        return s
+    s = s[len(PREFIX):]
+    l = len(s)
+    b = bytearray([0] * int(l / 4))
+    p = 0
+    i = 0
+    while i < l:
+        if s[i] == 'U':
+            i += 1
+            i0 = int(s[i:i+4], 36)
+            b[p] = i0 >> 8
+        else:
+            i0 = int(s[i:i+4], 36)
+            i1, i2 = i0 / 256, i0 % 256
+            b[p] = int((i1 + i2 - 254) / 2)
+        p = p + 1
+        i += 4
+    return b[0:p].decode('utf8')
+
 def run():
     global conn
 
@@ -873,7 +889,7 @@ def run():
                 port=db_config['port'], \
                 dbname=db_config['database'], \
                 user=db_config['user'], \
-                password=db_config['password']  \
+                password=deobfuscate(db_config['password']) \
             )
             try:
 
@@ -892,9 +908,14 @@ def run():
 
                 while True: # Main loop
 
-                    next_time = controller.process()
-                    wait_time = 5 if config.debug else 60
+                    next_time = controller.process(max_count=100)
+
+                    if terminate():
+                        unlock_workers()
+                        return
+
                     if next_time is not None:
+                        wait_time = 5 if config.debug else 60
                         dt = (next_time - controller.now()).total_seconds()
                         if dt > 0:
                             if dt < wait_time:
@@ -902,13 +923,9 @@ def run():
                         else:
                             wait_time = 0.1
 
-                    if terminate():
-                        unlock_workers()
-                        return
-
-                    #if config.debug: print(wait_time)
-                    r, w, e = select.select([conn, wakeup], [], [], wait_time)
-                    wakeup.clear()
+                        #if config.debug: print(wait_time)
+                        r, w, e = select.select([conn, wakeup], [], [], wait_time)
+                        wakeup.clear()
 
                     Worker.clear_changes()
                     Task.clear_changes()
@@ -938,3 +955,4 @@ def run():
 if __name__ == '__main__':
 
     run()
+
