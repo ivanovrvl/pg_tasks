@@ -306,7 +306,7 @@ class ActiveObjectsController():
         if node is not None:
             return node.owner
 
-    def process(self, on_before=None, on_success=None, on_error=None) -> datetime:
+    def process(self, max_count: int=None, on_before=None, on_success=None, on_error=None) -> datetime:
 
         def do(obj:ActiveObject):
             obj.unschedule()
@@ -352,6 +352,10 @@ class ActiveObjectsController():
                 do(item.owner)
                 n -= 1
                 if n < 0: break
+                if max_count is not None:
+                    max_count -= 1
+                    if max_count <= 0:
+                        return None
                 if self.terminated: break
                 item = remove_next_signaled()
 
