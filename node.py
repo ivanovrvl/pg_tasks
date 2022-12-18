@@ -24,6 +24,14 @@ class AttrDict(dict):
         dict.__setitem__(self, name, AttrDict.__transform__(value))
 
 config = AttrDict(get_config())
+#config.debug = True
+
+capture_stdout = config.capture_stdout
+if capture_stdout is not None and capture_stdout > 0:
+    import queue
+    import threading
+else:
+    capture_stdout = 0
 
 sys.path.append(os.path.abspath('py_active_objects'))
 from active_objects import ActiveObjectWithRetries, ActiveObjectsController
@@ -37,8 +45,8 @@ worker = None # Node`s worker
 
 conn = None # DB Connection
 
-no_more_waiting_tasks: bool = False # no more AW tasks
-locked_other_workers_count:int = 0
+no_more_waiting_tasks = False # no more AW tasks
+locked_other_workers_count = 0
 
 wakeup = eventfd.EventFD()
 
@@ -47,11 +55,19 @@ def get_msg(msg_const:str, default:str):
 
 child_processes = {}
 
+def capture_stdout_func(input, buffer, max_size):
+    while True:
+        b = input.readline()
+        if not b: break
+        buffer.put(b)
+        while buffer.qsize() > capture_stdout:
+            buffer.get()
+
 class TaskProcess:
     """
     OS process wrapper
     """
-    def __init__(self, commands:list, id, cwd=None):
+    def __init__(self, commands:list, id, cwd=None, capture_stdout:int=0):
         cmds = []
         for c in commands:
             if c == '%TASK':
@@ -61,13 +77,19 @@ class TaskProcess:
         self.id = id
         self.wait_until = None
         self.exit_code = None
-        self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd = cwd)
-        #self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, stdout=None, stderr=None, cwd = cwd)
-        #self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, cwd = cwd)
+        self.capture_stdout = capture_stdout
+        if self.capture_stdout > 0:
+            self.stdout = queue.Queue()
+            self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd = cwd)
+            self.stdout_thread = threading.Thread(target=capture_stdout_func, args=(self.proc.stdout, self.stdout, self.capture_stdout))
+            self.stdout_thread.start()
+        else:
+            self.proc = subprocess.Popen(cmds, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, cwd = cwd)
 
     def set_exit_code(self, exit_code:int):
-        self.exit_code = exit_code
-        self.proc = None
+        if self.proc is not None:
+            self.exit_code = exit_code
+            self.close()
 
     def check_result(self):
         if self.exit_code is not None:
@@ -84,6 +106,21 @@ class TaskProcess:
     def kill(self):
         if self.proc is not None:
             self.proc.kill()
+
+    def close(self):
+        if self.proc is not None:
+            if self.capture_stdout > 0:
+                self.proc.stdout.close()
+            self.proc = None
+
+    def get_error(self)->str:
+        if self.capture_stdout > 0:
+            s = b''
+            while self.stdout.qsize() > 0:
+                s += self.stdout.get()
+            return Messages.TASK_FAILED.format(self.exit_code) + '\n' + s.decode('cp866')
+        else:
+            return Messages.TASK_FAILED.format(self.exit_code)
 
 class CommonTask(ActiveObjectWithRetries):
 
@@ -123,9 +160,9 @@ class RefreshWorkers(CommonTask):
             self.schedule(self.next_refresh)
             self.info(Messages.REFRESH_WORKERS)
             with conn.cursor() as cur:
-                sql = f"""
-                    SELECT id,{','.join(Worker.table_fields)}
-                    FROM {Worker.table_name}
+                sql = """
+                    SELECT id,""" + ','.join(Worker.table_fields) + """
+                    FROM """ + Worker.table_name + """
                     """
                 expected_ids = controller.get_ids(Worker.type_name)
                 cur.execute(sql)
@@ -155,9 +192,9 @@ class RefreshTasks(CommonTask):
             self.next_refresh = self.controller.now() + timedelta(minutes=55)
             self.schedule(self.next_refresh)
             with conn.cursor() as cur:
-                sql = f"""
-                    SELECT id,{','.join(Task.table_fields)}
-                    FROM {Task.table_name}
+                sql = """
+                    SELECT id,""" + ','.join(Task.table_fields) + """
+                    FROM """ + Task.table_name + """
                     WHERE (
                     	group_id = %s
                         and (
@@ -195,6 +232,7 @@ class DbObject(CommonTask):
         self.__old_db_state__ = None # last known DB state
         self.db_state = None # current state
         self.changed_fields = set()
+        self.is_deleted = False
 
     def set_field(self, name:str, value, set_changed:bool=True):
         if self.db_state is None:
@@ -211,9 +249,12 @@ class DbObject(CommonTask):
         return True
 
     def set_deleted(self):
+        self.info("DELETED")
+        self.is_deleted = True
         self.__old_db_state__ = None
         self.db_state = None
         self.changed_fields.clear()
+        self.signal()
 
     def set_db_state(self, state):
         if self.__old_db_state__ is None \
@@ -233,31 +274,31 @@ class DbObject(CommonTask):
     def refresh_db_state(self):
         self.__old_db_state__ = None
         with conn.cursor() as cur:
-            sql = f"""
-                SELECT id,{','.join(self.__class__.table_fields)}
-                FROM {self.__class__.table_name}
+            sql = """
+                SELECT id,""" + ','.join(self.__class__.table_fields) + """
+                FROM """ + self.__class__.table_name + """
                 WHERE id = %s"""
             cur.execute(sql, (self.id,))
             refresh_db_states(cur, self.__class__, set([self.id]))
 
     def save_db_state(self):
         if len(self.changed_fields) > 0:
-            sql = f"""
-                update {self.__class__.table_name}
-                set {','.join([n + '=%s' for n in self.changed_fields])}
+            sql = """
+                update """ + self.__class__.table_name + """
+                set """ + ','.join([n + '=%s' for n in self.changed_fields]) + """
                 where id=%s
             """
             values = [self.db_state[n] for n in self.changed_fields]
             values.append(self.id)
             if self.__class__.version_field_name is not None:
                 values.append(self.db_state[self.__class__.version_field_name])
-                sql = sql + f"and {self.__class__.version_field_name}=%s"
+                sql = sql + "and " + self.__class__.version_field_name + "=%s"
             with conn.cursor() as cur:
                 cur.execute(sql, values)
                 self.changed_fields.clear()
                 if cur.rowcount == 0:
                     self.refresh_db_state()
-                    if debug:
+                    if config.debug:
                         self.error(Messages.TASK_CATCHED_BY_OTHER_SIDE)
 
     def info(self, msg:str):
@@ -285,9 +326,9 @@ class DbObject(CommonTask):
     @classmethod
     def apply_changes(cls):
         with conn.cursor() as cur:
-            sql = f"""
-                SELECT id,{','.join(cls.table_fields)}
-                FROM {cls.table_name}
+            sql = """
+                SELECT id,""" + ','.join(cls.table_fields) + """
+                FROM """ + cls.table_name + """
                 WHERE id = any(%s)
                 """
             cur.execute(sql, (list(cls.changed.difference(cls.deleted)),))
@@ -295,7 +336,7 @@ class DbObject(CommonTask):
             cls.changed.clear()
 
             for id in cls.deleted:
-                task = controller.find(type_name, id)
+                task = controller.find(cls.type_name, id)
                 if task is not None:
                     task.set_deleted()
 
@@ -313,7 +354,7 @@ class Worker(DbObject):
     worker record
     """
     type_name = "w"
-    table_name = f"{config.schema}.worker"
+    table_name = config.schema + ".worker"
     table_fields = ['active', 'locked_until', 'stop']
     notify_key = '!' + table_name
 
@@ -356,6 +397,7 @@ class Worker(DbObject):
         val = int(val)
         if self.stop == val: return False
         old = self.stop
+        if old == 4: return False
         self.stop = val
         if self.id == config.worker_id:
             self.info(Messages.STOP_VAL.format(val))
@@ -373,7 +415,7 @@ class Worker(DbObject):
         """
         with conn.cursor() as cur:
             lock_until = self.controller.now() + config.half_locking_time + config.half_locking_time
-            sql = f"SELECT {config.schema}.lock_worker(%s,%s,%s,%s,%s,%s)"
+            sql = "SELECT " + config.schema + ".lock_worker(%s,%s,%s,%s,%s,%s)"
             if self.id == config.worker_id:
                 cur.execute(sql, (self.id, config.group_id, config.node_name, len(child_processes), lock_until, self.lock_time))
             else:
@@ -417,7 +459,7 @@ class Worker(DbObject):
 
     def unlock_and_deactivate(self):
         with conn.cursor() as cur:
-            sql = f"UPDATE {Worker.table_name} SET active=false, locked_until=NULL, task_count=%s WHERE id=%s"
+            sql = "UPDATE " + Worker.table_name + " SET active=false, locked_until=NULL, task_count=%s WHERE id=%s"
             cur.execute(sql, (len(child_processes) if self.id==config.worker_id else 0, self.id))
             self.db_state['active'] = False
             self.db_state['locked_until'] = None
@@ -426,7 +468,7 @@ class Worker(DbObject):
     def recover_worker_tasks(self):
         self.info(Messages.RECOVER_TASKS)
         with conn.cursor() as cur:
-            sql = f"SELECT {config.schema}.recover_worker_tasks(%s)"
+            sql = "SELECT " + config.schema + ".recover_worker_tasks(%s)"
             cur.execute(sql, (self.id,))
 
     def process(self):
@@ -462,15 +504,15 @@ class Task(DbObject):
     deleted = set()
 
     type_name = "t"
-    table_name = f"{config.schema}.task"
+    table_name = config.schema + ".task"
     version_field_name = 'last_state_change'
-    table_fields = ['state_id', 'worker_id', 'group_id', 'next_start', 'shed_period_id', 'shed_period_count', version_field_name]
-    notify_key = f'!{table_name}.{config.group_id}'
+    table_fields = ['state_id', 'worker_id', 'group_id', 'next_start', 'shed_period_id', 'shed_period_count', 'shed_enabled', 'cleanup_pending', version_field_name]
+    notify_key = "!" + table_name + "." + str(config.group_id)
 
     def __init__(self, controller, id = None):
         super().__init__(controller, id)
         self.priority = 1
-        self.__process__:TaskProcess = None
+        self.__process__ = None
         self.next_process_check = None
         self.stop_type = None # тип прерывания 'S' - Stop, 'C' - Cancel
 
@@ -479,6 +521,8 @@ class Task(DbObject):
         if self.__process__ is process:
             return
         if self.__process__ is not None:
+            self.__process__.close()
+            self.__process__ = None
             child_processes.pop(self.pid)
             if process is None:
                 startMoreTasks.start_more()
@@ -495,7 +539,8 @@ class Task(DbObject):
         if self.__process__ is not None:
             if stop_type == 'S':
                 if self.stop_type is None:
-                    self.__process__.terminate()
+                    if self.__process__ is not None:
+                        self.__process__.terminate()
                     self.stop_type = stop_type
                     self.next_process_check = None # check the process state immediatelly
                     if config.debug:
@@ -503,7 +548,8 @@ class Task(DbObject):
                     return True
             elif stop_type == 'C':
                 if self.stop_type is None or self.stop_type == 'S':
-                    self.__process__.kill()
+                    if self.__process__ is not None:
+                        self.__process__.kill()
                     self.stop_type = stop_type
                     self.next_process_check = None # check the process state immediatelly
                     self.signal()
@@ -517,14 +563,15 @@ class Task(DbObject):
         if process is not None:
             res_code = process.check_result()
             if res_code is None: return True
+            error = process.get_error()
             self.set_process(None)
             if self.stop_type is None or self.stop_type == 'S':
                 if res_code == 0:
                     self.complete()
                 else:
-                    self.fail(Messages.TASK_FAILED.format(res_code))
+                    self.fail(error)
             else:
-                self.fail(Messages.TASK_FAILED.format(res_code), canceled=True)
+                self.fail(error, canceled=True)
         return False
 
     def set_process_exit_code(self, exit_code:int):
@@ -583,8 +630,9 @@ class Task(DbObject):
                 return add_period_until(self.db_state['next_start'], controller.now(), add_interval) + add_interval
 
     def start(self, command, cwd:str=None):
+        global capture_stdout
         if self.update_process_state():
-            raise Exception(Message.RELUNCH_ACTIVE)
+            raise Exception(Messages.RELUNCH_ACTIVE)
 
         if cwd is None or not os.path.isabs(cwd):
             root = config.get("root_dir")
@@ -595,7 +643,7 @@ class Task(DbObject):
             else:
                 cwd = root
 
-        proc = TaskProcess(list(command), self.id, cwd)
+        proc = TaskProcess(list(command), self.id, cwd, capture_stdout=capture_stdout)
         self.set_process(proc)
         self.next_process_check = None # check the process state immediatelly
 
@@ -604,14 +652,17 @@ class Task(DbObject):
 
     def fail(self, error:str, canceled:bool=False):
         if self.db_state is None: self.refresh_db_state()
-        if self.db_state['state_id'].startswith('A'):
-            self.set_field("state_id", 'CC' if canceled else 'CF')
-            self.set_field("error", error)
-        self.kill_process()
-        if canceled:
-            self.info(Messages.TASK_CANCELLED)
-        else:
-            self.error(error)
+        if self.db_state is not None:
+            if error is not None:
+                error = str(error).replace('\0', '\n')
+            if self.db_state['state_id'].startswith('A'):
+                self.set_field("state_id", 'CC' if canceled else 'CF')
+                self.set_field("error", error)
+            self.kill_process()
+            if canceled:
+                self.info(Messages.TASK_CANCELLED)
+            else:
+                self.error(error)
 
     def complete(self):
         if self.db_state['state_id'].startswith('A'):
@@ -627,14 +678,12 @@ class Task(DbObject):
 
         self.save_db_state()
 
-        if not worker.has_lock or worker.stop >= 3:
+        if not worker.has_lock or worker.stop >= 3 or self.is_deleted:
             self.set_stop('C')
         elif self.db_state is not None:
             state_id = self.db_state['state_id']
             p_id = self.db_state['worker_id']
-            if self.db_state.get("deleted"):
-                self.set_stop('C')
-            elif p_id is None or p_id != config.worker_id:
+            if p_id is None or p_id != config.worker_id:
                 self.next_process_check = None
                 self.set_watchdog()
                 if state_id.startswith('A') and state_id != 'AW':
@@ -676,18 +725,18 @@ class Task(DbObject):
                     self.fail(Messages.TASK_PHANTOM)
 
         # check task.next_start reached
-        if self.db_state is not None and worker.has_lock and self.stop_type is None:
+        if self.db_state is not None and self.db_state['shed_enabled'] and not self.db_state['cleanup_pending'] and worker.has_lock and self.stop_type is None:
             next_start = self.db_state['next_start']
             if next_start is not None and self.reached_with_limit(next_start):
                 new_next_start = self.get_next_start()
                 with conn.cursor() as cur:
-                    sql = f"UPDATE {Task.table_name} SET next_start=%s WHERE id=%s AND next_start=%s"
+                    sql = "UPDATE " + Task.table_name + " SET next_start=%s WHERE id=%s AND next_start=%s"
                     cur.execute(sql, (new_next_start, self.id, next_start))
                     if cur.rowcount > 0:
                         self.set_field('next_start', new_next_start, set_changed=False)
                         if new_next_start is not None:
                             self.schedule_with_limit(new_next_start)
-                        sql = f"SELECT {config.schema}.sched_start(%s)"
+                        sql = "SELECT " + config.schema + ".sched_start(%s)"
                         cur.execute(sql, (self.id,))
                         new_task_id = cur.fetchone()[0]
                         if new_task_id is not None:
@@ -697,10 +746,9 @@ class Task(DbObject):
                         self.refresh_db_state()
 
         self.save_db_state()
-        # if the activities are not planned in the near future
-        # then Task is not needed yet, unload it
-        if not(self.is_signaled() or self.is_scheduled()):
-            #if self.get_process() is None:
+
+        if self.get_process() is None:
+            if self.is_deleted or not(self.is_signaled() or self.is_scheduled()):
                 self.close()
 
     def close(self):
@@ -715,7 +763,7 @@ class Task(DbObject):
         """
         if db_state['group_id'] != config.group_id:
             return False
-        if db_state['next_start'] is not None:
+        if db_state['shed_enabled'] and db_state['next_start'] is not None:
             return True
         if db_state['state_id'] == 'AW':
             return False
@@ -741,15 +789,15 @@ class StartMoreTasks(CommonTask):
         global no_more_waiting_tasks
         if self.can_start_more():
             with conn.cursor() as cur:
-                sql = f"SELECT start_task FROM {config.schema}.start_task(%s,%s)"
+                sql = "SELECT start_task FROM " + config.schema + ".start_task(%s,%s)"
                 cur.execute(sql, (config.group_id, config.worker_id))
                 id = cur.fetchone()[0]
                 if id is None:
                     no_more_waiting_tasks = True
                     return
                 self.signal() # then try one more
-                sql = f"SELECT command, cwd, {','.join(Task.table_fields)} \
-                    FROM {Task.table_name} \
+                sql = "SELECT command, cwd, " + ','.join(Task.table_fields) + " \
+                    FROM " + Task.table_name + " \
                     WHERE id = %s"
                 cur.execute(sql, (id,))
                 row = cur.fetchone()
@@ -833,43 +881,45 @@ def unlock_workers():
     if worker.has_lock:
         worker.unlock_and_deactivate()
 
+
+terminated_processes_backlog = []
+terminate_backlog = []
+
 def on_child_signal(signum, frame):
     try:
+        b = True
         while True:
             child_pid, exit_code = os.waitpid(-1, os.WNOHANG)
             if child_pid <= 0: break
+            terminated_processes_backlog.append((child_pid, exit_code))
+            if b:
+                b = False
+                wakeup.set()
+    except ChildProcessError as e:
+        pass
+
+def on_term_signal(signum, frame):
+    print("SIGTERM")
+    terminate_backlog.append(4)
+    wakeup.set()
+
+def process_signal_backlog():
+    try:
+        while True:
+            worker.set_stop(terminate_backlog.pop())
+    except IndexError:
+        pass
+    try:
+        while True:
+            child_pid, exit_code = terminated_processes_backlog.pop()
             task = child_processes.get(child_pid)
             if task is not None:
                 task.set_process_exit_code(exit_code)
                 task.signal()
-                wakeup.set()
                 if config.debug:
                     print('SIGCHLD', child_pid, exit_code)
-    except ChildProcessError as e:
+    except IndexError:
         pass
-
-
-def deobfuscate(s):
-    PREFIX = "OBF:"
-    if not s.startswith(PREFIX):
-        return s
-    s = s[len(PREFIX):]
-    l = len(s)
-    b = bytearray([0] * int(l / 4))
-    p = 0
-    i = 0
-    while i < l:
-        if s[i] == 'U':
-            i += 1
-            i0 = int(s[i:i+4], 36)
-            b[p] = i0 >> 8
-        else:
-            i0 = int(s[i:i+4], 36)
-            i1, i2 = i0 / 256, i0 % 256
-            b[p] = int((i1 + i2 - 254) / 2)
-        p = p + 1
-        i += 4
-    return b[0:p].decode('utf8')
 
 def run():
     global conn
@@ -878,9 +928,12 @@ def run():
     db_config = config.db
 
     try:
+        signal.signal(signal.SIGTERM, on_term_signal)
         signal.signal(signal.SIGCHLD, on_child_signal)
     except AttributeError as e:
         print(e)
+
+    nextSignalAll = datetime.now() + timedelta(minutes=5)
 
     while True: # DB reconnect loop
         try:
@@ -896,9 +949,15 @@ def run():
                 conn.autocommit = True
                 conn.set_isolation_level(psycopg2.extensions.ISOLATION_LEVEL_AUTOCOMMIT)
 
+                try:
+                    with conn.cursor() as cur:
+                        cur.execute("INSERT INTO " + Worker.table_name + "(id) VALUES(%s)", [config.worker_id])
+                except Exception as e:
+                    pass
+
                 with conn.cursor() as cur:
-                    cur.execute(f'LISTEN "{Task.notify_key}"')
-                    cur.execute(f'LISTEN "{Worker.notify_key}"')
+                    cur.execute('LISTEN "' + Task.notify_key + '"')
+                    cur.execute('LISTEN "' + Worker.notify_key + '"')
 
                 refreshWorkers.refresh_all()
                 if not terminate():
@@ -925,11 +984,12 @@ def run():
 
                         #if config.debug: print(wait_time)
                         r, w, e = select.select([conn, wakeup], [], [], wait_time)
-                        wakeup.clear()
+                        if wakeup in r:
+                            wakeup.clear()
+                            process_signal_backlog()
 
                     Worker.clear_changes()
                     Task.clear_changes()
-
                     conn.poll()
                     while conn.notifies:
                         n = conn.notifies.pop()
@@ -937,9 +997,15 @@ def run():
                             Task.add_change(n.payload)
                         elif n.channel == Worker.notify_key:
                             Worker.add_change(n.payload)
-
                     Worker.apply_changes()
                     Task.apply_changes()
+
+                    if nextSignalAll <= datetime.now():
+                        if config.debug:
+                            nextSignalAll = datetime.now() + timedelta(seconds=10)
+                        else:
+                            nextSignalAll = datetime.now() + timedelta(minutes=5)
+                        controller.signal()
 
             finally:
                 conn.close()
