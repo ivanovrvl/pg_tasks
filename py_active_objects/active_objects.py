@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 class ActiveObject:
 
     def __init__(self, controller, type_name=None, id=None, priority:int=0):
-        self.t:datetime = None
+        self.t = None
         self.type_name = type_name
         self.id = id
         self.controller = controller
@@ -221,12 +221,12 @@ class FlagListener:
 
     def __init__(self, owner:ActiveObject):
         self.__wait_queue__ = linked_list.DualLinkedListItem(self)
-        self.owner:ActiveObject = owner
+        self.owner = owner
 
     def close(self):
         self.__wait_queue__.remove()
-        self.owner:ActiveObject = None
-        self.flag:Flag = None
+        self.owner = None
+        self.flag = None
 
     def is_up(self, flag: Flag) -> bool:
         if flag.__is_up__:
@@ -287,7 +287,7 @@ class ActiveObjectsController():
         self.__tree_by_t__ = avl_tree.Tree(__comp_t__)
         self.__tree_by_id__ = avl_tree.Tree(__comp_id__)
         self.__signaled__ = [linked_list.DualLinkedList() for i in range(0, priority_count)]
-        self.terminated: bool = False
+        self.terminated = False
         self.emulated_time = None
 
     def find(self, type_name, id) -> ActiveObject:
@@ -360,18 +360,32 @@ class ActiveObjectsController():
                 item = remove_next_signaled()
 
     def for_each_object(self, type_name, func):
-        n = self.__tree_by_id__.find_leftmost_eq(type_name, __compkey_type__)
-        while n is not None and n.owner.type_name == type_name:
-            func(n.owner)
-            n = n.get_successor()
+        if type_name is None:
+            n = self.__tree_by_id__.get_leftmost()
+            while n is not None:
+                func(n.owner)
+                n = n.get_successor()
+        else:
+            n = self.__tree_by_id__.find_leftmost_eq(type_name, __compkey_type__)
+            while n is not None and n.owner.type_name == type_name:
+                func(n.owner)
+                n = n.get_successor()
 
     def for_each_object_with_break(self, type_name, func):
-        n = self.__tree_by_id__.find_leftmost_eq(type_name, __compkey_type__)
-        while n is not None and n.owner.type_name == type_name:
-            v = func(n.owner)
-            if v:
-                return v
-            n = n.get_successor()
+        if type_name is None:
+            n = self.__tree_by_id__.get_leftmost()
+            while n is not None:
+                v = func(n.owner)
+                if v:
+                    return v
+                n = n.get_successor()
+        else:
+            n = self.__tree_by_id__.find_leftmost_eq(type_name, __compkey_type__)
+            while n is not None and n.owner.type_name == type_name:
+                v = func(n.owner)
+                if v:
+                    return v
+                n = n.get_successor()
         return None
 
     def get_ids(self, type_name) -> list:
@@ -379,7 +393,7 @@ class ActiveObjectsController():
         self.for_each_object(type_name, lambda o: res.append(o.id))
         return res
 
-    def signal(self, type_name):
+    def signal(self, type_name=None):
         self.for_each_object(type_name, lambda o: o.signal())
 
     def terminate(self):

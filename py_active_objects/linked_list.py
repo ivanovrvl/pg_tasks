@@ -1,3 +1,4 @@
+# This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/pg_tasks/blob/main/LICENSE
 class DualLinkedListItem:
 
     def __init__(self, owner = None):
