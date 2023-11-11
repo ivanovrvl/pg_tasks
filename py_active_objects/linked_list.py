@@ -1,4 +1,8 @@
 # This code is under MIT licence, you can find the complete file here: https://github.com/ivanovrvl/pg_tasks/blob/main/LICENSE
+
+class DualLinkedList:
+    pass
+
 class DualLinkedListItem:
 
     def __init__(self, owner = None):
@@ -6,8 +10,11 @@ class DualLinkedListItem:
         if owner is not None:
             self.owner = owner
 
-    def in_list(self) -> bool:
-      return self.list is not None
+    def in_list(self, list:DualLinkedList=None) -> bool:
+        if list is None:
+            return self.list is not None
+        else:
+            return self.list == list
 
     @DeprecationWarning
     def get_next(self):
