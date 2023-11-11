@@ -229,7 +229,7 @@ class DbObject(CommonTask):
 
     def __init__(self, controller, id = None):
         super().__init__(controller, self.__class__.type_name, id)
-        self.__old_db_state__ = None # last known DB state
+        self._old_db_state = None # last known DB state
         self.db_state = None # current state
         self.changed_fields = set()
         self.is_deleted = False
@@ -251,20 +251,20 @@ class DbObject(CommonTask):
     def set_deleted(self):
         self.info("DELETED")
         self.is_deleted = True
-        self.__old_db_state__ = None
+        self._old_db_state = None
         self.db_state = None
         self.changed_fields.clear()
         self.signal()
 
     def set_db_state(self, state):
-        if self.__old_db_state__ is None \
+        if self._old_db_state is None \
         or (self.__class__.version_field_name is not None \
-        and self.__old_db_state__[self.__class__.version_field_name] != state[self.__class__.version_field_name]):
-            self.__old_db_state__ = state
+        and self._old_db_state[self.__class__.version_field_name] != state[self.__class__.version_field_name]):
+            self._old_db_state = state
             self.db_state = copy.copy(state)
             self.changed_fields.clear()
         else:
-            self.__old_db_state__ = state
+            self._old_db_state = state
             old = self.db_state
             self.db_state = copy.copy(state)
             for n in self.changed_fields:
@@ -272,7 +272,7 @@ class DbObject(CommonTask):
         self.signal()
 
     def refresh_db_state(self):
-        self.__old_db_state__ = None
+        self._old_db_state = None
         with conn.cursor() as cur:
             sql = """
                 SELECT id,""" + ','.join(self.__class__.table_fields) + """
