@@ -1,0 +1,3 @@
+[submodule "py_active_objects"]
+	path = py_active_objects
+	url = https://github.com/ivanovrvl/py_active_objects.git
